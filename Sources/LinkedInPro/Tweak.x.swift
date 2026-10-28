@@ -12,13 +12,15 @@ struct LinkedInPro: Tweak {
         HookRegistry.shared.logTargetInventory()
         LProDevKit.startIfEnabled()
 
-        // Feature groups are activated here as each module lands, each guarded by
-        // HookRegistry.activate(...) so a missing class on a new LinkedIn build is
-        // a logged skip, never a crash:
-        //   Phase 1  Settings  -> SettingsInjectionGroup
-        //   Phase 2  Feed      -> FeedFilterGroup
-        //   Phase 3  NavBar    -> NavBarCustomizeGroup (+ GlassOptOut.apply())
-        //   Phase 0  DevKit    -> StrikerStart() once the striker submodule is wired
+        // Phase 1 - Settings: a version-independent UINavigationController hook, so
+        // the only requirement is UIKit itself.
+        HookRegistry.shared.activate(SettingsInjectionGroup(), named: "settings-injection",
+                                     requiring: ["UINavigationController"])
+
+        // Later phases activate here, each guarded by HookRegistry.activate(...) so
+        // a missing class on a new LinkedIn build is a logged skip, never a crash:
+        //   Phase 2  Feed    -> FeedFilterGroup (DashFeedUpdateBuilder build:error:)
+        //   Phase 3  NavBar  -> NavBarCustomizeGroup (+ GlassOptOut.apply())
     }
 
     // Orion's default handleError forwards to handleErrorDefault, which calls
