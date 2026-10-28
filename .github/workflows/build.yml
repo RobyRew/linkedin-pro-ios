@@ -1,0 +1,254 @@
+name: Build
+
+# One builder for LinkedIn Professional: rootless/roothide .deb, the tweak .dylib,
+# a sideload .ipa (cyan + ipapatch + patch_ipa) and an optional AltStore source.
+# The vanilla DECRYPTED LinkedIn IPA is never committed to this public repo; it is
+# fetched at build time from the ipa_url input or the LINKEDIN_IPA_URL secret.
+#
+# Packaging scripts come from the tweak-kit submodule (Submodules/tweak-kit/scripts).
+
+on:
+  workflow_dispatch:
+    inputs:
+      ipa_url:
+        description: "Decrypted LinkedIn IPA URL (blank uses the LINKEDIN_IPA_URL secret)"
+        required: false
+        type: string
+      app_name:
+        description: "Home-screen name (blank keeps LinkedIn)"
+        required: false
+        type: string
+      bundle_id:
+        description: "Bundle id (blank keeps com.linkedin.LinkedIn)"
+        required: false
+        type: string
+      min_ios:
+        description: "Minimum iOS: a version like 18.0, remove, or keep"
+        required: false
+        type: string
+        default: "18.0"
+      remove_device_limits:
+        type: boolean
+        default: true
+      file_sharing:
+        type: boolean
+        default: true
+      sideload_fix:
+        description: "Inject zxPluginsInject (AltStore / sideload keychain fix)"
+        type: boolean
+        default: true
+      jailbreak_deb:
+        type: choice
+        options: [rootless, roothide, both]
+        default: rootless
+      trollstore:
+        description: "Also attach a fakesigned .tipa"
+        type: boolean
+        default: false
+      altstore_source:
+        description: "Generate/refresh docs/apps.json (AltStore source) on release"
+        type: boolean
+        default: true
+      publish_release:
+        description: "Upload artifacts to the GitHub Release for this version"
+        type: boolean
+        default: false
+  push:
+    branches: [main]
+    paths:
+      - control
+      - compatibility.json
+
+permissions:
+  contents: write
+
+env:
+  THEOS: ${{ github.workspace }}/theos
+
+jobs:
+  release-check:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: write
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          submodules: recursive
+      - name: Dispatch a release build for a new version
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          TAG=$(python3 Submodules/tweak-kit/scripts/compat.py --tag)
+          TITLE=$(python3 Submodules/tweak-kit/scripts/compat.py --title)
+          PUBLISHED=$(gh release view "$TAG" --json name -q .name 2>/dev/null || true)
+          if [ "$PUBLISHED" = "$TITLE" ]; then
+            echo "$TAG already released as \"$TITLE\"; nothing to build." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          gh workflow run build.yml --ref "$GITHUB_REF_NAME" -f publish_release=true
+          echo "Dispatched a release build for $TAG ($TITLE)." >> "$GITHUB_STEP_SUMMARY"
+
+  build:
+    # Runs on manual dispatch and on the dispatch that release-check fires.
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          submodules: recursive
+          fetch-depth: 1
+          persist-credentials: true
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: "26.3.0"
+
+      - name: Checkout Theos
+        uses: actions/checkout@v5
+        with:
+          repository: theos/theos
+          path: ${{ github.workspace }}/theos
+          submodules: recursive
+
+      - name: Install build tools
+        run: |
+          brew install make dpkg ldid wget
+          echo "$(brew --prefix make)/libexec/gnubin" >> "$GITHUB_PATH"
+          # pillow: cyan -k (custom icon) resizes with it
+          python3 -m pip install --upgrade --break-system-packages \
+              git+https://github.com/asdfzxcvbn/pyzule-rw.git pillow
+          ARCH=$(uname -m); [ "$ARCH" = "x86_64" ] && SUFFIX=macos-amd64 || SUFFIX=macos-arm64
+          sudo curl -fsSL "https://github.com/asdfzxcvbn/ipapatch/releases/latest/download/ipapatch.${SUFFIX}" \
+              -o /usr/local/bin/ipapatch
+          sudo chmod +x /usr/local/bin/ipapatch
+
+      - name: Build rootless .deb
+        env:
+          REPO_SLUG: ${{ github.repository }}
+          JAILBREAK_DEB: ${{ inputs.jailbreak_deb }}
+        run: |
+          set -euo pipefail
+          THEOS_PACKAGE_SCHEME=rootless make package FINALPACKAGE=1
+          mkdir -p stage
+          DEB=$(ls -t packages/com.linkedinpro.linkedin_*.deb | head -1)
+          case "${JAILBREAK_DEB:-rootless}" in rootless|both) cp -f "$DEB" stage/ ;; esac
+          EXTRACT="$RUNNER_TEMP/deb-extract"; rm -rf "$EXTRACT"; mkdir -p "$EXTRACT"
+          dpkg-deb -R "$DEB" "$EXTRACT"
+          DYLIB=$(find "$EXTRACT" -name 'LinkedInPro.dylib' | head -1)
+          file "$DYLIB" | grep -q arm64
+          cp -f "$DYLIB" stage/LinkedInPro.dylib
+          echo "EXTRACT=$EXTRACT" >> "$GITHUB_ENV"
+
+      - name: Build RootHide .deb
+        if: inputs.jailbreak_deb == 'roothide' || inputs.jailbreak_deb == 'both'
+        env:
+          REPO_SLUG: ${{ github.repository }}
+        run: |
+          make clean || true
+          THEOS_PACKAGE_SCHEME=roothide make package FINALPACKAGE=1
+          DEB=$(ls -t packages/com.linkedinpro.linkedin_*.deb | head -1)
+          cp -f "$DEB" "stage/$(basename "$DEB" .deb)-roothide.deb"
+
+      - name: Build zxPluginsInject.dylib
+        if: inputs.sideload_fix
+        run: bash Submodules/tweak-kit/scripts/build-zxpi.sh
+
+      - name: Resolve vanilla IPA
+        id: ipa
+        env:
+          IPA_URL: ${{ inputs.ipa_url }}
+          IPA_URL_SECRET: ${{ secrets.LINKEDIN_IPA_URL }}
+        run: |
+          set -euo pipefail
+          mkdir -p input
+          URL="${IPA_URL:-$IPA_URL_SECRET}"
+          [ -n "$URL" ] || { echo "::error::no IPA: set the ipa_url input or the LINKEDIN_IPA_URL secret"; exit 1; }
+          curl -fsSL -o input/vanilla.ipa "$URL"
+          echo "path=input/vanilla.ipa" >> "$GITHUB_OUTPUT"
+
+      - name: Package IPA
+        env:
+          VANILLA: ${{ steps.ipa.outputs.path }}
+          APP_NAME: ${{ inputs.app_name }}
+          BUNDLE_ID: ${{ inputs.bundle_id }}
+          MIN_IOS: ${{ inputs.min_ios }}
+          REMOVE_DEVICE_LIMITS: ${{ inputs.remove_device_limits }}
+          FILE_SHARING: ${{ inputs.file_sharing }}
+          SIDELOAD_FIX: ${{ inputs.sideload_fix }}
+          TROLLSTORE: ${{ inputs.trollstore }}
+        run: |
+          set -euo pipefail
+          VERSION=$(grep -E '^Version:' control | awk '{print $2}')
+          LVER=$(unzip -p "$VANILLA" 'Payload/LinkedIn.app/Info.plist' \
+            | plutil -extract CFBundleShortVersionString raw - 2>/dev/null || echo unknown)
+          OUT="stage/LinkedInPro-${VERSION}-${LVER}.ipa"
+          ARGS=(--ipa "$VANILLA" --deb-root "$EXTRACT" --tweak-name LinkedInPro --out "$OUT"
+                --min-ios "${MIN_IOS:-keep}")
+          [ -z "$APP_NAME" ]  || ARGS+=(--name "$APP_NAME")
+          [ -z "$BUNDLE_ID" ] || ARGS+=(--bundle-id "$BUNDLE_ID")
+          [ "$SIDELOAD_FIX" != true ]         || ARGS+=(--sideload-fix packages/zxPluginsInject.dylib)
+          [ "$REMOVE_DEVICE_LIMITS" != true ] || ARGS+=(--remove-device-limits)
+          [ "$FILE_SHARING" != true ]         || ARGS+=(--file-sharing)
+          [ "$TROLLSTORE" != true ]           || ARGS+=(--tipa)
+          bash Submodules/tweak-kit/scripts/package-ipa.sh "${ARGS[@]}"
+          echo "IPA_OUT=$OUT" >> "$GITHUB_ENV"
+
+      - name: Checksums and summary
+        env:
+          OPTIONS: ${{ toJSON(inputs) }}
+        run: |
+          set -euo pipefail
+          cd stage
+          shasum -a 256 -- * > SHA256SUMS.txt
+          {
+            echo "### Build"
+            echo
+            echo '```json'
+            echo "$OPTIONS" | jq 'del(.ipa_url)'
+            echo '```'
+            echo
+            echo "| File | Size |"; echo "| --- | --- |"
+            for f in *; do echo "| \`$f\` | $(du -h "$f" | cut -f1) |"; done
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v5
+        with:
+          name: linkedin-pro-build
+          path: stage/
+          if-no-files-found: error
+
+      - name: Publish GitHub Release
+        if: inputs.publish_release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          assets=(stage/*.deb stage/*.dylib stage/*.ipa stage/*.tipa stage/SHA256SUMS.txt)
+          [ ${#assets[@]} -gt 0 ] || { echo "::error::no assets in stage/"; exit 1; }
+          bash Submodules/tweak-kit/scripts/publish_release.sh "${assets[@]}"
+
+      - name: Refresh AltStore source
+        if: inputs.publish_release && inputs.altstore_source
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          TAG=$(python3 Submodules/tweak-kit/scripts/compat.py --tag)
+          IPA_NAME=$(basename "$IPA_OUT")
+          URL="https://github.com/${{ github.repository }}/releases/download/${TAG}/${IPA_NAME}"
+          BID="${{ inputs.bundle_id }}"; [ -n "$BID" ] || BID="com.linkedin.LinkedIn"
+          python3 Submodules/tweak-kit/scripts/make-altstore-source.py \
+            --ipa "$IPA_OUT" --download-url "$URL" --bundle-id "$BID" \
+            --source-name "LinkedIn Professional" --app-name "LinkedIn Professional" \
+            --out docs/apps.json --min-ios "${{ inputs.min_ios }}"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add docs/apps.json
+          git commit -m "ci: refresh AltStore source for $TAG" || { echo "no change"; exit 0; }
+          git push
