@@ -1,0 +1,6 @@
+[submodule "Submodules/striker"]
+	path = Submodules/striker
+	url = https://github.com/RobyRew/striker
+[submodule "Submodules/tweak-kit"]
+	path = Submodules/tweak-kit
+	url = https://github.com/RobyRew/tweak-kit

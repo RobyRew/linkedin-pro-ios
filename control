@@ -1,0 +1,9 @@
+Package: com.linkedinpro.linkedin
+Name: LinkedInPro
+Version: 1.0.0
+Architecture: iphoneos-arm
+Description: LinkedIn Professional - customization tweak for the LinkedIn iOS app
+Maintainer: RobyRew
+Author: RobyRew
+Section: Tweaks
+Depends: ${ORION}, firmware (>= 18.0)

@@ -1,0 +1,35 @@
+.DS_Store
+._*
+
+# Xcode / SPM
+/.build
+/Packages
+/*.xcodeproj
+xcuserdata/
+*.xcuserstate
+.swiftpm
+
+# theos build output
+.theos/
+packages/
+Sources/LinkedInPro/Generated/
+extra_dylibs/
+
+# build artifacts
+*.ipa
+*.tipa
+*.deb
+Outputs/
+
+# NEVER commit LinkedIn's binary to this public repo (copyright / ToS).
+# CI fetches the vanilla decrypted IPA at build time via a workflow input.
+input/*.ipa
+
+# logs / editor / scratch
+*.log
+.vscode/
+__pycache__/
+*.pyc
+.analysis/
+.dumps/
+.tools/

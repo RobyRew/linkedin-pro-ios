@@ -1,0 +1,8 @@
+{
+  "patch": "v1.0.0",
+  "platform": "ios",
+  "linkedin_min": "2026.1021.1050",
+  "linkedin_max": "2026.1231.9999",
+  "linkedin_current": "2026.1021.1050",
+  "hook": "voyager"
+}
