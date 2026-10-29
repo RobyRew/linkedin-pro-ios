@@ -1,30 +1,61 @@
 import SwiftUI
 
-// Premium spoof settings. Writes UserDefaults.lproPremium, read by PremiumSpoof.
+// Premium settings: a master switch over collapsible feature groups, plus the
+// client spoof toggle. Every feature flag is stored in UserDefaults.lproPremium
+// and reported to PremiumPOC.sync(); see PremiumOptions for what backs them.
 struct LProPremiumSettingsView: View {
     @State private var options = UserDefaults.lproPremium
 
     var body: some View {
         List {
             Section {
-                Toggle("Spoof Premium", isOn: $options.spoofPremium)
+                Toggle("Premium features", isOn: masterBinding)
+                LabeledContent("Enabled", value: "\(options.enabledCount)/\(options.featureCount)")
             } header: {
-                Text("Premium")
+                Text("All features")
             } footer: {
-                Text("Flips the client's premium flags so premium UI unlocks: the gold badge, premium bars/logos, hidden \u{201C}upgrade\u{201D} prompts, and the premium feature entry points.")
+                Text("Switches every option below on or off together. Each option can still be changed on its own inside its group.")
+            }
+
+            ForEach(PremiumFeatureCatalog.groups, id: \.title) { group in
+                DisclosureGroup {
+                    ForEach(group.items, id: \.id) { item in
+                        Toggle(isOn: binding(item.id)) {
+                            Label(item.title, systemImage: item.symbol)
+                        }
+                    }
+                } label: {
+                    Label(group.title, systemImage: group.symbol)
+                }
             }
 
             Section {
-                Text("What this does NOT do")
-                    .font(.footnote.weight(.semibold))
-                Text("LinkedIn still checks premium on its servers for the actual data. Who-viewed-me lists, profile/company analytics, InMail credits and Learning videos stay gated - you get the premium screens, but they come back empty or ask to subscribe. Takes effect on relaunch.")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
+                Toggle("Spoof Premium (client flags)", isOn: $options.spoofPremium)
+            } header: {
+                Text("Client")
+            } footer: {
+                Text("Flips the client's premium flags: gold badge, premium bars and logos, suppressed upgrade prompts, premium entry points. LinkedIn still checks premium on its servers for the data itself, so who-viewed-me lists, analytics, InMail credits and Learning streams stay gated.")
             }
         }
         .navigationTitle("Premium")
         .onChange(of: options) { _, newValue in
             UserDefaults.lproPremium = newValue
+            PremiumPOC.sync(newValue)
         }
+    }
+
+    // Master switch: reflects "every option on", and sets them all.
+    private var masterBinding: Binding<Bool> {
+        Binding(
+            get: { options.allEnabled },
+            set: { on in options.setAll(on) }
+        )
+    }
+
+    private func binding(_ id: String) -> Binding<Bool> {
+        Binding(
+            get: { options.isEnabled(id) },
+            set: { on in options.set(id, on) }
+        )
     }
 }
