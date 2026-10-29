@@ -1,26 +1,39 @@
 import Orion
 import UIKit
 import Foundation
+import ObjectiveC.runtime
 
-// Phase 3, nav bar. LINMainNavViewController is a UITabBarController, so:
+// Phase 3, nav bar. LINMainNavViewController is a UITabBarController, and every
+// tab type is built by MainNavTabTypeFactory (feed, messaging, myNetwork, jobs,
+// notifications, video, games, trendsHub, more). The bar set is server-driven,
+// so it already tolerates a varying number of tabs; the hook below rewrites the
+// ordered list to the user's set:
 //   - icon-only tabs: blank each item's title (LINTabBarItemFactory).
-//   - reorder: rewrite the ordered tab list (MainNavTabTypeFactory.mainNavTabsOrder)
-//     to the user's permutation (reorder only; never drop a tab - the app may
-//     assume a fixed set).
-//   - iOS 26 floating-glass tabs: LinkedIn opts out of the iOS 26 design system
-//     via Info.plist UIDesignRequiresCompatibility=1; flipping that to false for
-//     the main bundle lets the system render the Liquid Glass "island" tab bar.
-//     App-wide and experimental, so it is behind a default-off toggle, installed
-//     early (before UIKit reads the key). See GlassTabsGroup.
+//   - reorder: user permutation of the ordered tab list.
+//   - hide: tab types removed from the list.
+//   - add: tab types the factory can build but the server did not surface
+//     (messaging/chat, video, games, trendsHub, ...), appended, then ordered.
+// A change takes effect on relaunch: the order is cached (invalidateTabsOrderCache).
+//
+// iOS 26 floating-glass tabs: LinkedIn opts out of the iOS 26 design system via
+// Info.plist UIDesignRequiresCompatibility=1; flipping that to false for the main
+// bundle lets the system render the Liquid Glass "island" tab bar. App-wide and
+// experimental, behind a default-off toggle, installed early (before UIKit reads
+// the key). See GlassTabsGroup.
 struct NavBarCustomizeGroup: HookGroup {}
 
 // Icon-only tabs: blank the returned item's title + nudge the icon to centre.
+// Also captures the real item image per tab so the settings list can show the
+// same icon the bar uses.
 class TabBarItemFactoryHook: ClassHook<NSObject> {
     typealias Group = NavBarCustomizeGroup
     static let targetName = "LINTabBarItemFactory"
 
     func makeTabBarItemForTabType(_ tabType: Any?) -> UITabBarItem? {
         let item = orig.makeTabBarItemForTabType(tabType)
+        if let type = tabType as? NSObject, let item = item {
+            TabIconStore.record(item.image, for: TabCatalog.tabName(type))
+        }
         guard UserDefaults.lproTabBar.hideLabels, let item = item else { return item }
         item.title = ""
         item.imageInsets = UIEdgeInsets(top: 6, left: 0, bottom: -6, right: 0)
@@ -28,52 +41,61 @@ class TabBarItemFactoryHook: ClassHook<NSObject> {
     }
 }
 
-// Reorder the bottom tabs. Called once (the order is cached), so a change takes
-// effect on relaunch.
+// Rewrites the ordered tab-type list. `target` is the factory instance, so extra
+// tab types are resolved through LinkedIn's own zero-argument factory methods
+// instead of constructing them ourselves.
 class MainNavTabsOrderHook: ClassHook<NSObject> {
     typealias Group = NavBarCustomizeGroup
     static let targetName = "_TtC14HomeNavAPIImpl21MainNavTabTypeFactory"
 
     func mainNavTabsOrder() -> NSArray {
         let original = orig.mainNavTabsOrder()
-        return TabReorder.apply(original)
+        return TabReorder.apply(original, factory: target)
     }
 }
 
 enum TabReorder {
-    static func apply(_ original: NSArray) -> NSArray {
+    static func apply(_ original: NSArray, factory: NSObject?) -> NSArray {
         let items = original.compactMap { $0 as? NSObject }
         guard !items.isEmpty else { return original }
 
-        let named = items.map { (name: tabName($0), obj: $0) }
-        let names = named.map { $0.name }
-
-        // Publish the natural order so the settings UI can list the real tabs.
         var opt = UserDefaults.lproTabBar
+        var named = items.map { (name: TabCatalog.tabName($0), obj: $0) }
+
+        // Extras first, so they join the discovered list and can be ordered and
+        // icon-cached like any other tab.
+        for selector in opt.extraTabs {
+            guard let extra = TabCatalog.tabType(selector: selector, factory: factory) else { continue }
+            let name = TabCatalog.tabName(extra)
+            if !named.contains(where: { $0.name == name }) {
+                named.append((name: name, obj: extra))
+                LProLog.write("[navbar] added tab \(name) from \(selector)")
+            }
+        }
+
+        let names = named.map { $0.name }
         if opt.discoveredTabs != names {
             opt.discoveredTabs = names
             UserDefaults.lproTabBar = opt
             LProLog.write("[navbar] tabs discovered: \(names)")
         }
 
-        let order = opt.order
-        guard !order.isEmpty else { return original }
-
-        var result: [NSObject] = []
-        for name in order {
-            if let found = named.first(where: { $0.name == name })?.obj { result.append(found) }
+        var ordered: [(name: String, obj: NSObject)] = []
+        for name in opt.order {
+            if let hit = named.first(where: { $0.name == name }) { ordered.append(hit) }
         }
-        for entry in named where !order.contains(entry.name) { result.append(entry.obj) }
+        for entry in named where !ordered.contains(where: { $0.name == entry.name }) {
+            ordered.append(entry)
+        }
 
-        // Only a true permutation (same count) - never drop a tab.
-        guard result.count == items.count else { return original }
-        return result as NSArray
-    }
-
-    private static func tabName(_ obj: NSObject) -> String {
-        if obj.responds(to: NSSelectorFromString("tabName")),
-           let n = obj.value(forKey: "tabName") as? String { return n }
-        return NSStringFromClass(type(of: obj))
+        // Hide last: a hidden tab keeps its place in `order` so unhiding restores
+        // its position.
+        let visible = ordered.filter { !opt.hiddenTabs.contains($0.name) }
+        guard !visible.isEmpty else {
+            LProLog.write("[navbar] refusing to hide every tab; keeping the natural set")
+            return original
+        }
+        return visible.map { $0.obj } as NSArray
     }
 }
 

@@ -1,13 +1,33 @@
 import SwiftUI
 
-// Nav-bar settings. Writes UserDefaults.lproTabBar, read by NavBarCustomize.
+// Nav-bar settings. Writes UserDefaults.lproTabBar, read by NavBarCustomize:
+// order, hidden tabs and added tabs all feed MainNavTabTypeFactory.mainNavTabsOrder.
 struct LProNavBarSettingsView: View {
     @State private var options = UserDefaults.lproTabBar
 
-    // The list to show/reorder: the user's order if set, else the tabs the
-    // reorder hook discovered at runtime.
-    private var tabs: [String] {
-        options.order.isEmpty ? options.discoveredTabs : options.order
+    // Everything the bar can show: the user's order first, then any tab the hook
+    // discovered that is not ordered yet. Hidden tabs stay listed so they can be
+    // brought back where they were.
+    private var rows: [String] {
+        var seen = Set<String>()
+        var out: [String] = []
+        for name in options.order where !seen.contains(name) {
+            seen.insert(name); out.append(name)
+        }
+        for name in options.discoveredTabs where !seen.contains(name) {
+            seen.insert(name); out.append(name)
+        }
+        return out
+    }
+
+    // Extras that are not already in the bar (by selector or by resolved name).
+    private var availableExtras: [TabCatalog.Extra] {
+        TabCatalog.extras.filter { extra in
+            if options.extraTabs.contains(extra.selector) { return false }
+            if let name = TabCatalog.resolvedName(forSelector: extra.selector),
+               options.discoveredTabs.contains(name) { return false }
+            return true
+        }
     }
 
     var body: some View {
@@ -25,24 +45,50 @@ struct LProNavBarSettingsView: View {
             } header: {
                 Text("iOS 26 design")
             } footer: {
-                Text("Opts LinkedIn back into the iOS 26 design so the bottom bar becomes the floating Liquid Glass \u{201C}island\u{201D}. Experimental and app-wide - it can restyle other screens; if anything looks wrong, turn it off and relaunch. Needs a relaunch to apply.")
+                Text("Opts LinkedIn back into the iOS 26 design so the bottom bar becomes the floating Liquid Glass \u{201C}island\u{201D}. Experimental and app-wide - it can restyle other screens; if anything looks wrong, turn it off and relaunch.")
             }
 
-            if tabs.isEmpty {
-                Section("Tab order") {
+            Section {
+                if rows.isEmpty {
                     Text("Open LinkedIn's tabs once so they can be listed here, then come back.")
                         .font(.footnote).foregroundStyle(.secondary)
+                } else {
+                    ForEach(rows, id: \.self) { name in
+                        tabRow(name)
+                    }
+                    .onMove(perform: move)
                 }
-            } else {
+            } header: {
+                Text("Tabs")
+            } footer: {
+                Text("Drag to reorder. The eye hides a tab from the bar without losing its place here. At least one tab is always kept. Takes effect on relaunch.")
+            }
+            .environment(\.editMode, .constant(.active))
+
+            if !availableExtras.isEmpty {
                 Section {
-                    ForEach(tabs, id: \.self) { Text(pretty($0)) }
-                        .onMove(perform: move)
+                    ForEach(availableExtras, id: \.selector) { extra in
+                        Button { add(extra) } label: {
+                            HStack(spacing: 12) {
+                                Image(systemName: extra.symbol)
+                                    .frame(width: 24)
+                                    .foregroundStyle(.tint)
+                                Text(extra.title).foregroundStyle(.primary)
+                                Spacer()
+                                Image(systemName: "plus.circle.fill").foregroundStyle(.tint)
+                            }
+                        }
+                    }
                 } header: {
-                    Text("Tab order")
+                    Text("Add tabs")
                 } footer: {
-                    Text("Drag to reorder the bottom tabs. Reorder only - tabs are never removed. Takes effect on relaunch.")
+                    Text("Tabs LinkedIn can build but does not always show - Chat, Video, Games, Trends Hub. A tab the server already exposes is not listed here.")
                 }
-                .environment(\.editMode, .constant(.active))
+            }
+
+            Section {
+                Button("Reset tab customization", role: .destructive) { reset() }
+                    .disabled(options.order.isEmpty && options.hiddenTabs.isEmpty && options.extraTabs.isEmpty)
             }
         }
         .navigationTitle("Navigation Bar")
@@ -51,13 +97,75 @@ struct LProNavBarSettingsView: View {
         }
     }
 
+    @ViewBuilder
+    private func tabRow(_ name: String) -> some View {
+        HStack(spacing: 12) {
+            icon(for: name)
+                .frame(width: 24, height: 24)
+                .opacity(options.hiddenTabs.contains(name) ? 0.35 : 1)
+            Text(pretty(name))
+                .foregroundStyle(options.hiddenTabs.contains(name) ? .secondary : .primary)
+            Spacer()
+            Button {
+                toggleHidden(name)
+            } label: {
+                Image(systemName: options.hiddenTabs.contains(name) ? "eye.slash.fill" : "eye.fill")
+                    .foregroundStyle(options.hiddenTabs.contains(name) ? Color.secondary : Color.accentColor)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(options.hiddenTabs.contains(name)
+                                ? "Show \(pretty(name)) tab"
+                                : "Hide \(pretty(name)) tab")
+        }
+    }
+
+    @ViewBuilder
+    private func icon(for name: String) -> some View {
+        if let image = TabIconStore.image(for: name) {
+            Image(uiImage: image).renderingMode(.template)
+        } else {
+            Image(systemName: TabCatalog.symbol(forTabNamed: name))
+        }
+    }
+
+    private func toggleHidden(_ name: String) {
+        if options.hiddenTabs.contains(name) {
+            options.hiddenTabs.remove(name)
+        } else {
+            let visible = rows.filter { !options.hiddenTabs.contains($0) }
+            guard visible.count > 1 else { return }  // never hide the last tab
+            options.hiddenTabs.insert(name)
+        }
+    }
+
+    private func add(_ extra: TabCatalog.Extra) {
+        guard !options.extraTabs.contains(extra.selector) else { return }
+        options.extraTabs.append(extra.selector)
+        // If the factory already resolves the tab, place it in the list now;
+        // otherwise the reorder hook appends it after the next relaunch.
+        if let name = TabCatalog.resolvedName(forSelector: extra.selector),
+           !options.discoveredTabs.contains(name) {
+            options.discoveredTabs.append(name)
+            options.order.append(name)
+        }
+    }
+
     private func move(from source: IndexSet, to destination: Int) {
-        var list = tabs
+        var list = rows
         list.move(fromOffsets: source, toOffset: destination)
         options.order = list
     }
 
+    private func reset() {
+        options.order = []
+        options.hiddenTabs = []
+        options.extraTabs = []
+    }
+
     private func pretty(_ raw: String) -> String {
-        raw.replacingOccurrences(of: "_", with: " ").capitalized
+        if let extra = TabCatalog.extras.first(where: {
+            $0.selector.lowercased() == raw.lowercased()
+        }) { return extra.title }
+        return raw.replacingOccurrences(of: "_", with: " ").capitalized
     }
 }

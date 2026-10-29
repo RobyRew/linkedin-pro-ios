@@ -8,6 +8,8 @@ import Foundation
 enum FeedCategory: Equatable {
     case organic
     case reactionSurfaced(LProReaction)
+    case commentSurfaced // "X commented on this"
+    case repostSurfaced  // "X reposted this"
     case sponsored      // "Promoted" ads
     case promotion      // suggestions / recommendations / follow cards
     case premiumUpsell  // LinkedIn Premium upsell cards
@@ -24,6 +26,13 @@ enum FeedReason {
         if header.contains("promoted") || header.contains("sponsored") {
             return .sponsored
         }
+        if header.contains("commented on this") || header.contains("commented on a post")
+            || header.contains("replied to this") {
+            return .commentSurfaced
+        }
+        if header.contains("reposted this") || header.contains("reposted a post") {
+            return .repostSurfaced
+        }
         for reaction in LProReaction.allCases
         where reaction.headerPatterns.contains(where: { header.contains($0) }) {
             return .reactionSurfaced(reaction)
@@ -38,6 +47,9 @@ enum FeedReason {
     private static let promotionHeaderPatterns = [
         "suggested", "recommended", "people you may know", "add to your feed",
         "you might", "trending", "pages for you", "groups you",
+        "newsletters for you", "jobs for you", "courses for you", "events for you",
+        "based on your", "because you follow", "popular on linkedin",
+        "top picks for you", "linkedin news", "puzzles", "games you may",
     ]
 
     // update.header (DashFeedHeaderComponent).text (DashTextViewModel).text

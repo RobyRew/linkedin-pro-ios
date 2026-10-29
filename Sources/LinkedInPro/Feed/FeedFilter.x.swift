@@ -27,6 +27,10 @@ class DashFeedUpdateBuilderHook: ClassHook<NSObject> {
             if options.hideReactionSurfaced && options.reactions.contains(reaction) {
                 return drop(update, "reaction:\(reaction.rawValue)")
             }
+        case .commentSurfaced:
+            if options.hideCommentSurfaced { return drop(update, "commented") }
+        case .repostSurfaced:
+            if options.hideRepostSurfaced { return drop(update, "reposted") }
         case .sponsored:
             if options.hideSponsored { return drop(update, "sponsored") }
         case .promotion:

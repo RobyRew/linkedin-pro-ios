@@ -35,6 +35,7 @@ class NavPanelVCHook: ClassHook<UIViewController> {
 enum LProAccountEntry {
     private static var logged = false
     private static var naturalKey: UInt8 = 0
+    private static var settingsYKey: UInt8 = 1
 
     static func apply(in root: UIView?) {
         guard let root = root,
@@ -53,6 +54,20 @@ enum LProAccountEntry {
             natural = area.frame.height
             objc_setAssociatedObject(area, &naturalKey, natural, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
         }
+
+        // The Settings row's pre-grow position, also stored per area instance:
+        // after the first pass its frame has moved down, so reading it again
+        // would stack our row on top of it.
+        let settingsY: CGFloat
+        if let stored = objc_getAssociatedObject(area, &settingsYKey) as? CGFloat {
+            settingsY = stored
+        } else {
+            settingsY = settingsRow.frame.minY
+            objc_setAssociatedObject(area, &settingsYKey, settingsY, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+        }
+
+        // Our row goes directly above the Settings row, keeping that row's own
+        // gap below the divider. The box only needs one extra row of height.
         let grown = natural + rowH
 
         // Grow the box upward (it is bottom-pinned): keep maxY, raise the top.
@@ -60,23 +75,24 @@ enum LProAccountEntry {
             area.frame = CGRect(x: area.frame.minX, y: area.frame.maxY - grown,
                                 width: area.frame.width, height: grown)
         }
+        // If the parent snapped the box back to its natural height this pass,
+        // leave the Settings row alone rather than pushing it out of the box.
+        guard area.frame.height >= settingsY + 2 * rowH - 0.5 else { return }
 
         if !logged {
             logged = true
-            LProLog.write("[entry] area=\(area.frame) natural=\(natural) rowH=\(rowH)")
+            LProLog.write("[entry] area=\(area.frame) natural=\(natural) settingsY=\(settingsY) rowH=\(rowH)")
         }
 
-        // Our row sits INSIDE the box, directly above the Settings row.
         let row = (area.viewWithTag(lproRowTag) as? UIControl) ?? makeRow()
         if row.superview !== area {
             row.tag = lproRowTag
             area.addSubview(row)
         }
-        let bottom = area.bounds.height
-        settingsRow.frame = CGRect(x: settingsRow.frame.minX, y: bottom - rowH,
-                                   width: settingsRow.frame.width, height: rowH)
-        row.frame = CGRect(x: settingsRow.frame.minX, y: bottom - 2 * rowH,
+        row.frame = CGRect(x: settingsRow.frame.minX, y: settingsY,
                            width: settingsRow.frame.width, height: rowH)
+        settingsRow.frame = CGRect(x: settingsRow.frame.minX, y: settingsY + rowH,
+                                   width: settingsRow.frame.width, height: rowH)
         area.bringSubviewToFront(row)
     }
 

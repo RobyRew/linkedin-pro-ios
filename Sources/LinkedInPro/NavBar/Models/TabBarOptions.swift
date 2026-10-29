@@ -7,12 +7,19 @@ struct TabBarOptions: Codable, Equatable {
     // Opt LinkedIn back INTO the iOS 26 design system so the bottom bar renders
     // as the floating Liquid Glass "island". App-wide design change, experimental.
     var iOS26GlassTabs: Bool = false
-    // User tab order, by tabName; empty = LinkedIn's natural order. A permutation
-    // only (tabs are reordered, never removed).
+    // User tab order, by tabName; empty = LinkedIn's natural order. Names not
+    // listed keep their natural relative order after the listed ones.
     var order: [String] = []
-    // The natural tab order the reorder hook last saw, by tabName. Populated at
-    // runtime so the settings UI can list the real tabs to reorder.
+    // The natural tab order the reorder hook last saw (including any extras the
+    // user added), by tabName. Populated at runtime so the settings UI can list
+    // the real tabs.
     var discoveredTabs: [String] = []
+    // tabNames removed from the bar (MainNavTabTypeFactory.mainNavTabsOrder).
+    var hiddenTabs: Set<String> = []
+    // Extra tabs to add to the bar, keyed by their MainNavTabTypeFactory selector
+    // (e.g. "messaging", "video", "games"). LinkedIn ships factories for these
+    // but only surfaces some of them by default.
+    var extraTabs: [String] = []
 
     init() {}
 
@@ -23,6 +30,8 @@ struct TabBarOptions: Codable, Equatable {
         iOS26GlassTabs = try c.decodeIfPresent(Bool.self, forKey: .iOS26GlassTabs) ?? d.iOS26GlassTabs
         order = try c.decodeIfPresent([String].self, forKey: .order) ?? d.order
         discoveredTabs = try c.decodeIfPresent([String].self, forKey: .discoveredTabs) ?? d.discoveredTabs
+        hiddenTabs = try c.decodeIfPresent(Set<String>.self, forKey: .hiddenTabs) ?? d.hiddenTabs
+        extraTabs = try c.decodeIfPresent([String].self, forKey: .extraTabs) ?? d.extraTabs
     }
 }
 
