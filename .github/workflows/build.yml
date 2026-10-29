@@ -64,6 +64,8 @@ permissions:
 
 env:
   THEOS: ${{ github.workspace }}/theos
+  # Monotonic build number -> version is <control patch>.b<run number>.
+  LPRO_BUILD_NUMBER: ${{ github.run_number }}
 
 jobs:
   release-check:
@@ -185,9 +187,10 @@ jobs:
           VERSION=$(grep -E '^Version:' control | awk '{print $2}')
           LVER=$(unzip -p "$VANILLA" 'Payload/LinkedIn.app/Info.plist' \
             | plutil -extract CFBundleShortVersionString raw - 2>/dev/null || echo unknown)
-          OUT="stage/LinkedInPro-${VERSION}-${LVER}.ipa"
+          OUT="stage/LinkedInPro-${VERSION}.b${LPRO_BUILD_NUMBER}-${LVER}.ipa"
+          # Mandatory: strip LinkedIn's app extensions (fewer App IDs for sideload).
           ARGS=(--ipa "$VANILLA" --deb-root "$EXTRACT" --tweak-name LinkedInPro --out "$OUT"
-                --min-ios "${MIN_IOS:-keep}")
+                --min-ios "${MIN_IOS:-keep}" --remove-extensions)
           [ -z "$APP_NAME" ]  || ARGS+=(--name "$APP_NAME")
           [ -z "$BUNDLE_ID" ] || ARGS+=(--bundle-id "$BUNDLE_ID")
           [ "$SIDELOAD_FIX" != true ]         || ARGS+=(--sideload-fix packages/zxPluginsInject.dylib)

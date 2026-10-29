@@ -22,6 +22,9 @@ struct LinkedInPro: Tweak {
         // the only requirement is UIKit itself.
         HookRegistry.shared.activate(SettingsInjectionGroup(), named: "settings-injection",
                                      requiring: ["UINavigationController"])
+        // The real entry: a row above "Settings & Privacy" in the Me-tab account panel.
+        HookRegistry.shared.activate(AccountPanelEntryGroup(), named: "account-panel-entry",
+                                     requiring: ["UIViewController"])
 
         // Phase 2 - Feed: hook DashFeedUpdateBuilder.build:error: (VoyagerLibs) to drop
         // posts surfaced by a connection's reaction, filtered by reaction type.
