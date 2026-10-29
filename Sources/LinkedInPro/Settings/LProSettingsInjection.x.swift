@@ -27,13 +27,32 @@ private let lproButtonTag = 0x4C50  // 'LP'
 // Opens the tweak settings screen on whatever navigation stack is in front.
 final class LProSettingsOpener: NSObject {
     static let shared = LProSettingsOpener()
+
     @objc func open() {
-        guard let nav = WindowHelper.topViewController?.navigationController
-                ?? WindowHelper.keyWindow?.rootViewController?.navigationController else {
-            LProLog.write("[settings] no navigation controller to push onto")
+        let host = LProSettingsViewController()
+        guard let top = WindowHelper.topViewController else {
+            LProLog.write("[settings] open: no top view controller")
             return
         }
-        nav.pushViewController(LProSettingsViewController(), animated: true)
+        if let nav = top.navigationController {
+            nav.pushViewController(host, animated: true)
+            LProLog.write("[settings] pushed onto \(NSStringFromClass(type(of: nav)))")
+        } else {
+            // The Me-tab account panel has no navigation controller, so present
+            // modally wrapped in one (title + Done button).
+            let nav = UINavigationController(rootViewController: host)
+            host.navigationItem.leftBarButtonItem = UIBarButtonItem(
+                barButtonSystemItem: .done, target: LProSettingsOpener.shared,
+                action: #selector(dismissSettings))
+            top.present(nav, animated: true)
+            LProLog.write("[settings] presented modally from \(NSStringFromClass(type(of: top)))")
+        }
+    }
+
+    @objc func dismissSettings() {
+        var vc = WindowHelper.keyWindow?.rootViewController
+        while let presented = vc?.presentedViewController { vc = presented }
+        vc?.dismiss(animated: true)
     }
 }
 

@@ -25,7 +25,9 @@ class NavPanelVCHook: ClassHook<UIViewController> {
 }
 
 enum LProAccountEntry {
+    static var naturalHeight: CGFloat?
     static var oneRowHeight: CGFloat = .greatestFiniteMagnitude
+    private static var logged = false
 
     static func apply(in root: UIView?) {
         guard let root = root,
@@ -33,14 +35,28 @@ enum LProAccountEntry {
               let settingsRow = firstView(in: area, idContains: "SettingsIconLabelView") else { return }
 
         let rowH = settingsRow.frame.height > 0 ? settingsRow.frame.height : 48
-        oneRowHeight = min(oneRowHeight, area.frame.height)
-        let targetHeight = oneRowHeight + rowH
 
-        // Grow the bottom bar upward by one row, keeping its bottom pinned.
-        if area.frame.height < targetHeight - 0.5 {
-            let bottom = area.frame.maxY
-            area.frame = CGRect(x: area.frame.minX, y: bottom - targetHeight,
-                                width: area.frame.width, height: targetHeight)
+        // The bar's height is Auto-Layout-constrained, so set the CONSTRAINT, not
+        // the frame (a frame change is reset on the next layout pass).
+        let heightC = area.constraints.first {
+            $0.firstAttribute == .height && ($0.firstItem as? UIView) === area && $0.secondItem == nil
+        }
+        if let hc = heightC {
+            if naturalHeight == nil { naturalHeight = hc.constant }
+            let target = (naturalHeight ?? hc.constant) + rowH
+            if abs(hc.constant - target) > 0.5 { hc.constant = target }
+        } else {
+            oneRowHeight = min(oneRowHeight, area.frame.height)
+            let target = oneRowHeight + rowH
+            if area.frame.height < target - 0.5 {
+                area.frame = CGRect(x: area.frame.minX, y: area.frame.maxY - target,
+                                    width: area.frame.width, height: target)
+            }
+        }
+
+        if !logged {
+            logged = true
+            LProLog.write("[entry] area h=\(area.frame.height) heightConstraint=\(heightC != nil) areaConstraints=\(area.constraints.count) super=\(NSStringFromClass(type(of: area.superview ?? area)))")
         }
 
         let row = (area.viewWithTag(lproRowTag) as? UIControl) ?? makeRow()
@@ -49,8 +65,8 @@ enum LProAccountEntry {
             area.addSubview(row)
         }
 
-        // Pin Settings to the bottom of the grown bar; our row sits just above it.
-        let settingsY = area.bounds.height - rowH
+        // Pin Settings to the bottom of the (grown) bar; our row sits just above it.
+        let settingsY = max(area.bounds.height - rowH, rowH)
         settingsRow.frame = CGRect(x: settingsRow.frame.minX, y: settingsY,
                                    width: settingsRow.frame.width, height: rowH)
         row.frame = CGRect(x: 0, y: settingsY - rowH, width: area.bounds.width, height: rowH)
