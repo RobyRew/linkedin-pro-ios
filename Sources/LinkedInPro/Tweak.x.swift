@@ -41,8 +41,10 @@ struct LinkedInPro: Tweak {
         HookRegistry.shared.activate(SDUIFeedActivatorGroup(), named: "sdui-feed-activator",
                                      requiring: ["UIViewController"])
 
-        // Later phases activate here, each guarded by HookRegistry.activate(...):
-        //   Phase 3  NavBar  -> NavBarCustomizeGroup (+ GlassOptOut.apply())
+        // Phase 3 - Nav bar: customize the bottom tab bar (icon-only to start).
+        // Guarded by LINTabBarItemFactory; a no-op if LinkedIn renamed it.
+        HookRegistry.shared.activate(NavBarCustomizeGroup(), named: "navbar-customize",
+                                     requiring: ["LINTabBarItemFactory"])
     }
 
     // Orion's default handleError forwards to handleErrorDefault, which calls

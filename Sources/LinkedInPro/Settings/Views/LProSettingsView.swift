@@ -28,8 +28,11 @@ struct LProSettingsView: View {
                 } label: {
                     Label("Feed", systemImage: "list.bullet.rectangle")
                 }
-                comingSoon("Navigation Bar", systemImage: "square.grid.3x3.fill.square",
-                           detail: "Reorder / hide tabs; Liquid Glass on iOS 26")
+                NavigationLink {
+                    LProNavBarSettingsView()
+                } label: {
+                    Label("Navigation Bar", systemImage: "square.grid.3x3.fill.square")
+                }
             }
 
             Section {
@@ -57,15 +60,5 @@ struct LProSettingsView: View {
             }
         }
         .navigationTitle("LinkedIn Professional")
-    }
-
-    private func comingSoon(_ title: String, systemImage: String, detail: String) -> some View {
-        HStack {
-            Label { Text(title) } icon: { Image(systemName: systemImage) }
-            Spacer()
-            Text("Soon").font(.caption).foregroundStyle(.secondary)
-        }
-        .foregroundStyle(.secondary)
-        .accessibilityHint(detail)
     }
 }

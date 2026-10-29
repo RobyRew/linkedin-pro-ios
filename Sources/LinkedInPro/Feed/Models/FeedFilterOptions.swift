@@ -42,14 +42,16 @@ enum LProReaction: String, CaseIterable, Codable, Hashable {
         }
     }
 
+    // Social-proof header text LinkedIn shows when a post is surfaced by this
+    // reaction. Includes the plural "... and N others like this" form.
     var headerPatterns: [String] {
         switch self {
-        case .like: return ["likes this", "liked this"]
-        case .celebrate: return ["celebrates this", "celebrated this"]
-        case .love: return ["loves this", "loved this"]
-        case .support: return ["supports this", "supported this"]
-        case .insightful: return ["finds this insightful", "found this insightful"]
-        case .funny: return ["finds this funny", "found this funny"]
+        case .like: return ["likes this", "liked this", "like this"]
+        case .celebrate: return ["celebrates this", "celebrated this", "celebrate this"]
+        case .love: return ["loves this", "loved this", "love this"]
+        case .support: return ["supports this", "supported this", "support this"]
+        case .insightful: return ["finds this insightful", "found this insightful", "find this insightful"]
+        case .funny: return ["finds this funny", "found this funny", "find this funny"]
         }
     }
 }

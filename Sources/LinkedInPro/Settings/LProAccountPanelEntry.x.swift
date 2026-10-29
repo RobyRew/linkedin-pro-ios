@@ -29,52 +29,37 @@ class NavPanelVCHook: ClassHook<UIViewController> {
 }
 
 enum LProAccountEntry {
-    static var naturalHeight: CGFloat?
-    static var oneRowHeight: CGFloat = .greatestFiniteMagnitude
     private static var logged = false
 
+    // The account area (NavPanelAccountAreaView) is frame-positioned by the panel,
+    // pinned to the bottom, and is NOT a stack view (just a divider + the single
+    // "Settings & Privacy" row). Growing it and repositioning its rows each layout
+    // fought the panel's own layout and drifted across open/close ("glued
+    // together"). Instead we place OUR row as a sibling of the area, in the panel
+    // view, directly above the area - a pure function of the area's frame each
+    // pass. LinkedIn's views are never mutated, so there is nothing to drift.
     static func apply(in root: UIView?) {
         guard let root = root,
               let area = firstView(in: root, idContains: "AccountAreaViewA11yID"),
-              let settingsRow = firstView(in: area, idContains: "SettingsIconLabelView") else { return }
+              let host = area.superview else { return }
 
-        let rowH = settingsRow.frame.height > 0 ? settingsRow.frame.height : 48
-
-        // The bar's height is Auto-Layout-constrained, so set the CONSTRAINT, not
-        // the frame (a frame change is reset on the next layout pass).
-        let heightC = area.constraints.first {
-            $0.firstAttribute == .height && ($0.firstItem as? UIView) === area && $0.secondItem == nil
-        }
-        if let hc = heightC {
-            if naturalHeight == nil { naturalHeight = hc.constant }
-            let target = (naturalHeight ?? hc.constant) + rowH
-            if abs(hc.constant - target) > 0.5 { hc.constant = target }
-        } else {
-            oneRowHeight = min(oneRowHeight, area.frame.height)
-            let target = oneRowHeight + rowH
-            if area.frame.height < target - 0.5 {
-                area.frame = CGRect(x: area.frame.minX, y: area.frame.maxY - target,
-                                    width: area.frame.width, height: target)
-            }
-        }
+        let settingsRow = firstView(in: area, idContains: "SettingsIconLabelView")
+        let rowH = (settingsRow?.frame.height ?? 0) > 0 ? settingsRow!.frame.height : 48
 
         if !logged {
             logged = true
-            LProLog.write("[entry] area h=\(area.frame.height) heightConstraint=\(heightC != nil) areaConstraints=\(area.constraints.count) super=\(NSStringFromClass(type(of: area.superview ?? area)))")
+            LProLog.write("[entry] area=\(area.frame) host=\(NSStringFromClass(type(of: host))) rowH=\(rowH)")
         }
 
-        let row = (area.viewWithTag(lproRowTag) as? UIControl) ?? makeRow()
-        if row.superview !== area {
+        let row = (host.viewWithTag(lproRowTag) as? UIControl) ?? makeRow()
+        if row.superview !== host {
             row.tag = lproRowTag
-            area.addSubview(row)
+            host.addSubview(row)
         }
-
-        // Pin Settings to the bottom of the (grown) bar; our row sits just above it.
-        let settingsY = max(area.bounds.height - rowH, rowH)
-        settingsRow.frame = CGRect(x: settingsRow.frame.minX, y: settingsY,
-                                   width: settingsRow.frame.width, height: rowH)
-        row.frame = CGRect(x: 0, y: settingsY - rowH, width: area.bounds.width, height: rowH)
-        area.bringSubviewToFront(row)
+        // Directly above the account area (its divider sits at the area's top).
+        row.frame = CGRect(x: area.frame.minX, y: area.frame.minY - rowH,
+                           width: area.frame.width, height: rowH)
+        host.bringSubviewToFront(row)
     }
 
     static func firstView(in view: UIView, idContains id: String) -> UIView? {

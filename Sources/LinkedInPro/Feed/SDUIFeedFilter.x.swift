@@ -1,35 +1,31 @@
 import Orion
 import UIKit
 import Foundation
+import ObjectiveC.runtime
 import LinkedInProC
 
-// Phase 2, SDUI feed. LinkedIn's feed is server-driven: each card is a generic
-// SDUI ComponentViewModel rendered by SDUI.ComponentCollectionViewAdapter, so
-// the DashFeedUpdateBuilder data hook never sees a feed card (confirmed on
-// device: `[feed] hid` stayed 0 while scrolling). Two mechanisms here, split by
-// what each can do safely:
+// Phase 2, SDUI feed. The main feed is server-driven: each card is a generic SDUI
+// component rendered by SDUI.Zen.ComponentCollectionViewDataSource into a
+// ComponentCell, so the DashFeedUpdateBuilder data hook never sees a feed card
+// (confirmed on device). Confirmed on device via Striker:
+//   - the ad/reaction markers are NOT UILabel text; they are the accessibility
+//     labels of SDUI.TextBlockView ("Promoted", "View Sponsored Content",
+//     "<name> likes this", ...). An earlier UILabel-only scan saw nothing.
+//   - the data source exposes only two @objc entry points we can hook:
+//     collectionView:willDisplayCell:forItemAtIndexPath: and
+//     collectionView:layout:sizeForItemAtIndexPath:. The feed uses explicit item
+//     sizes (the flow-layout size delegate is implemented), so returning height 0
+//     from the size method collapses a card with no leftover gap.
 //
-//   1. SHIPPING FILTER - cell level (always on when a clean-up option is on).
-//      When the adapter dequeues a feed cell we walk its view tree for the
-//      server-delivered markers - "Promoted"/"Sponsored" for ads, Premium
-//      upsell text, and the fixed suggestion/recommendation chrome phrases - and
-//      collapse the cell to zero height (NOX cells self-size, so a 0-height
-//      contentView constraint removes the gap). The marker is delivered text,
-//      not a compiled constant, so it is matched at runtime and is
-//      locale-sensitive (English phrases below; extend per locale from the log).
-//      Reused cells are restored when the model they now show is not a match.
+// Mechanism: in willDisplay we read the cell's accessibility labels, classify the
+// card, and if the user hid that category we hide the cell and record its item so
+// the size hook returns height 0 for it; the layout is invalidated only when the
+// recorded set actually changes (no layout loop). Reused cells are restored when
+// the card they now show is not a match. Detection is by delivered text, so it is
+// locale-sensitive (English markers below; extend per locale).
 //
-//   2. DEVKIT INSTRUMENTATION - data level (DevKit only, log-only). At
-//      NOXAdapter.setSections: we log each model's SDUI metadata (typeId /
-//      semanticId / protoMessageName / observabilityViewName). That metadata is
-//      the per-card ad marker a clean data-layer drop would key on; it is not a
-//      flag we can read blind, so we do NOT mutate the section array here - a
-//      wrong drop breaks the feed's data source. Capturing the real marker on
-//      device is the input to the data-layer drop in a later build.
-//
-// The adapter is a Swift class not registered at launch, so both groups are
-// activated lazily the first time a FeedSDUIViewController appears (see
-// SDUIFeedActivator), by which point the classes exist and Orion can bind them.
+// The data source is a Swift class not registered at launch, so the group is
+// activated lazily the first time a FeedSDUIViewController appears.
 
 // MARK: - lazy activation
 
@@ -51,181 +47,163 @@ enum SDUIFeedActivator {
     static var activated = false
 
     static func activate(feedRoot: UIView?) {
-        HookRegistry.shared.activate(SDUICellFilterGroup(), named: "sdui-cell-filter",
-                                     requiring: ["_TtC4SDUI30ComponentCollectionViewAdapter"])
-        if LProDevKit.isEnabled {
-            HookRegistry.shared.activate(SDUIFeedInstrumentGroup(), named: "sdui-feed-instrument",
-                                         requiring: ["NOXAdapter"])
-            // Capture the feed subtree once, so the SDUI card view structure can
-            // be read back over USB without a live session.
+        HookRegistry.shared.activate(SDUIFeedCellFilterGroup(), named: "sdui-cell-filter",
+                                     requiring: ["_TtCO4SDUI3Zen33ComponentCollectionViewDataSource"])
+        if LProDevKit.isEnabled, let root = feedRoot {
             let logPath = (NSTemporaryDirectory() as NSString).appendingPathComponent("linkedinpro.log")
-            if let root = feedRoot {
-                StrikerDumpView(Unmanaged.passUnretained(root).toOpaque(), logPath)
-                LProLog.write("[feed] dumped FeedSDUIViewController subtree to the log")
+            StrikerDumpView(Unmanaged.passUnretained(root).toOpaque(), logPath)
+            LProLog.write("[feed] dumped FeedSDUIViewController subtree to the log")
+        }
+    }
+}
+
+// MARK: - cell filter (Zen data source)
+
+struct SDUIFeedCellFilterGroup: HookGroup {}
+
+class ZenComponentDataSourceHook: ClassHook<NSObject> {
+    typealias Group = SDUIFeedCellFilterGroup
+    static let targetName = "_TtCO4SDUI3Zen33ComponentCollectionViewDataSource"
+
+    func collectionView(_ collectionView: UICollectionView,
+                        willDisplay cell: UICollectionViewCell,
+                        forItemAt indexPath: IndexPath) {
+        orig.collectionView(collectionView, willDisplay: cell, forItemAt: indexPath)
+        guard SDUIFeedFilter.isFeed(collectionView) else { return }
+
+        if SDUIFeedFilter.hideReason(for: cell) != nil {
+            cell.isHidden = true
+            if SDUIFeedFilter.mark(collectionView, indexPath.item) {
+                collectionView.collectionViewLayout.invalidateLayout()
+            }
+        } else {
+            cell.isHidden = false
+            if SDUIFeedFilter.unmark(collectionView, indexPath.item) {
+                collectionView.collectionViewLayout.invalidateLayout()
             }
         }
     }
-}
-
-// MARK: - cell-level collapse (shipping filter)
-
-struct SDUICellFilterGroup: HookGroup {}
-
-class SDUIComponentCellHook: ClassHook<NSObject> {
-    typealias Group = SDUICellFilterGroup
-    static let targetName = "_TtC4SDUI30ComponentCollectionViewAdapter"
 
     func collectionView(_ collectionView: UICollectionView,
-                        cellForItemAt indexPath: IndexPath) -> UICollectionViewCell {
-        let cell = orig.collectionView(collectionView, cellForItemAt: indexPath)
-        SDUIFeedCellFilter.apply(to: cell)
-        return cell
+                        layout collectionViewLayout: UICollectionViewLayout,
+                        sizeForItemAt indexPath: IndexPath) -> CGSize {
+        let size = orig.collectionView(collectionView, layout: collectionViewLayout, sizeForItemAt: indexPath)
+        if SDUIFeedFilter.isMarked(collectionView, indexPath.item) {
+            return CGSize(width: size.width, height: 0)
+        }
+        return size
     }
 }
 
-enum SDUIFeedCellFilter {
-    private static let collapseID = "LProFeedCollapse"
-
-    static func apply(to cell: UICollectionViewCell) {
-        let opt = UserDefaults.lproFeedFilter
-        guard opt.hideSponsored || opt.hidePromotions || opt.hidePremiumUpsell else {
-            restore(cell); return
-        }
-
-        let texts = labelTexts(in: cell.contentView)
-        let joined = texts.joined(separator: "\n").lowercased()
-
-        var why: String?
-        if opt.hideSponsored, isSponsored(texts) {
-            why = "sponsored"
-        } else if opt.hidePremiumUpsell, isPremiumUpsell(joined) {
-            why = "premium-upsell"
-        } else if opt.hidePromotions, isPromotion(joined) {
-            why = "promotion"
-        }
-
-        if let why = why { collapse(cell, why) } else { restore(cell) }
-    }
-
-    // A standalone "Promoted"/"Sponsored" actor subtitle marks an ad. Match a
-    // short label equal to (or starting with) the marker, so a post whose body
-    // merely contains the word is not caught.
-    private static func isSponsored(_ texts: [String]) -> Bool {
-        for raw in texts {
-            let t = raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-            if t.count <= 16 && (t == "promoted" || t == "sponsored"
-                || t.hasPrefix("promoted ") || t.hasPrefix("sponsored ")) { return true }
+enum SDUIFeedFilter {
+    // Only act on the main feed, not every SDUI screen that shares this data
+    // source class (jobs, the More tab, ...).
+    static func isFeed(_ collectionView: UICollectionView) -> Bool {
+        var responder: UIResponder? = collectionView
+        var hops = 0
+        while let r = responder, hops < 12 {
+            if NSStringFromClass(type(of: r)).contains("FeedSDUIViewController") { return true }
+            responder = r.next
+            hops += 1
         }
         return false
     }
 
-    private static func isPremiumUpsell(_ joined: String) -> Bool {
+    // The category this card falls into, if the matching option is on; else nil.
+    static func hideReason(for cell: UICollectionViewCell) -> String? {
+        let opt = UserDefaults.lproFeedFilter
+        guard opt.hideSponsored || opt.hidePromotions || opt.hidePremiumUpsell || opt.hideReactionSurfaced
+        else { return nil }
+
+        var budget = 400
+        let labels = markers(in: cell.contentView, budget: &budget)
+
+        if opt.hideSponsored, isSponsored(labels) { return "sponsored" }
+        if opt.hidePremiumUpsell, isPremiumUpsell(labels) { return "premium-upsell" }
+        if opt.hideReactionSurfaced, let r = reactionSurfaced(labels), opt.reactions.contains(r) {
+            return "reaction:\(r.rawValue)"
+        }
+        if opt.hidePromotions, isPromotion(labels) { return "promotion" }
+        return nil
+    }
+
+    // Accessibility labels + any UILabel text in the card. The SDUI markers live
+    // in accessibility labels, not UILabel.text.
+    private static func markers(in view: UIView, budget: inout Int) -> [String] {
+        if budget <= 0 { return [] }
+        budget -= 1
+        var out: [String] = []
+        if view.isAccessibilityElement, let a = view.accessibilityLabel, !a.isEmpty { out.append(a) }
+        if let label = view as? UILabel, let t = label.text, !t.isEmpty { out.append(t) }
+        for sub in view.subviews { out += markers(in: sub, budget: &budget) }
+        return out
+    }
+
+    private static func isSponsored(_ labels: [String]) -> Bool {
+        for raw in labels {
+            let t = raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            if t == "promoted" || t == "sponsored" || t.hasPrefix("promoted ")
+                || t.hasPrefix("sponsored ") || t.contains("sponsored content")
+                || t.contains("promoted by") { return true }
+        }
+        return false
+    }
+
+    private static func isPremiumUpsell(_ labels: [String]) -> Bool {
+        let joined = labels.joined(separator: "\n").lowercased()
         guard joined.contains("premium") else { return joined.contains("upsell") }
         return joined.contains("try") || joined.contains("free") || joined.contains("redeem")
             || joined.contains("month") || joined.contains("reactivate") || joined.contains("retry")
             || joined.contains("\u{20ac}") || joined.contains("$") || joined.contains("\u{00a3}")
     }
 
-    // Only the fixed recommendation/suggestion chrome phrases - not loose words
-    // like "trending" or "recommended" that a real post may use in its body.
+    // The social-proof header ("<name> likes this") is a short label.
+    private static func reactionSurfaced(_ labels: [String]) -> LProReaction? {
+        for raw in labels {
+            let t = raw.lowercased()
+            guard t.count < 90 else { continue }
+            for reaction in LProReaction.allCases
+            where reaction.headerPatterns.contains(where: { t.contains($0) }) {
+                return reaction
+            }
+        }
+        return nil
+    }
+
     private static let promotionPhrases = [
         "people you may know", "add to your feed", "pages for you",
         "suggested for you", "recommended for you", "groups you may",
     ]
-    private static func isPromotion(_ joined: String) -> Bool {
-        promotionPhrases.contains { joined.contains($0) }
-    }
-
-    private static func labelTexts(in root: UIView, depth: Int = 0, budget: inout Int) -> [String] {
-        if budget <= 0 || depth > 12 { return [] }
-        budget -= 1
-        var out: [String] = []
-        if let label = root as? UILabel, let t = label.text, !t.isEmpty { out.append(t) }
-        else if let field = root as? UITextField, let t = field.text, !t.isEmpty { out.append(t) }
-        else if let tv = root as? UITextView, !tv.text.isEmpty { out.append(tv.text) }
-        for sub in root.subviews { out += labelTexts(in: sub, depth: depth + 1, budget: &budget) }
-        return out
-    }
-    private static func labelTexts(in root: UIView) -> [String] {
-        var budget = 400
-        return labelTexts(in: root, budget: &budget)
-    }
-
-    private static func collapse(_ cell: UICollectionViewCell, _ why: String) {
-        let content = cell.contentView
-        if content.constraints.contains(where: { $0.identifier == collapseID }) { return }
-        content.clipsToBounds = true
-        for sub in content.subviews { sub.isHidden = true }
-        let c = content.heightAnchor.constraint(equalToConstant: 0)
-        c.priority = UILayoutPriority(999)  // self-sizing wins; avoids an unsatisfiable-constraint storm
-        c.identifier = collapseID
-        c.isActive = true
-        cell.isHidden = true
-        LProLog.write("[feed] collapsed \(why)")
-    }
-
-    private static func restore(_ cell: UICollectionViewCell) {
-        let content = cell.contentView
-        guard let c = content.constraints.first(where: { $0.identifier == collapseID }) else { return }
-        c.isActive = false
-        for sub in content.subviews { sub.isHidden = false }
-        cell.isHidden = false
-    }
-}
-
-// MARK: - data-level instrumentation (DevKit only, log-only)
-
-struct SDUIFeedInstrumentGroup: HookGroup {}
-
-class NOXAdapterSetSectionsHook: ClassHook<NSObject> {
-    typealias Group = SDUIFeedInstrumentGroup
-    static let targetName = "NOXAdapter"
-
-    func setSections(_ sections: NSArray?) {
-        orig.setSections(sections)
-        guard LProDevKit.isEnabled else { return }
-        SDUIFeedInstrument.log(adapter: target, sections: sections)
-    }
-}
-
-enum SDUIFeedInstrument {
-    // Keys that carry the SDUI card type marker we would key a data-layer drop
-    // on, and the container keys that hold a section's models.
-    private static let modelKeys = ["typeId", "semanticId", "protoMessageName",
-                                    "observabilityViewName", "nox_diffableIdentifier"]
-    private static let itemContainerKeys = ["items", "elements", "models", "children", "components", "rows"]
-
-    static func log(adapter: NSObject, sections: NSArray?) {
-        let adapterName = NSStringFromClass(type(of: adapter))
-        guard adapterName.contains("ComponentCollectionViewAdapter") else { return }  // feed/SDUI only
-        guard let sections = sections else { return }
-        LProLog.write("[feed-inst] \(adapterName) setSections count=\(sections.count)")
-        var logged = 0
-        outer: for case let section as NSObject in sections {
-            describe(section, tag: "section", loggedCount: &logged)
-            for key in itemContainerKeys {
-                guard let items = value(section, key) as? NSArray else { continue }
-                for case let item as NSObject in items {
-                    describe(item, tag: "item", loggedCount: &logged)
-                    if logged >= 12 { break outer }
-                }
-                break
-            }
-            if logged >= 12 { break }
+    private static func isPromotion(_ labels: [String]) -> Bool {
+        for raw in labels {
+            let t = raw.lowercased()
+            if promotionPhrases.contains(where: { t.contains($0) }) { return true }
         }
+        return false
     }
 
-    private static func describe(_ object: NSObject, tag: String, loggedCount: inout Int) {
-        var parts = ["\(tag)=\(NSStringFromClass(type(of: object)))"]
-        for key in modelKeys {
-            if let v = value(object, key) { parts.append("\(key)=\(v)") }
-        }
-        LProLog.write("[feed-inst]   \(parts.joined(separator: " "))")
-        loggedCount += 1
-    }
+    // MARK: marked-item store (per collection view)
 
-    private static func value(_ object: NSObject, _ key: String) -> Any? {
-        guard object.responds(to: NSSelectorFromString(key)) else { return nil }
-        return object.value(forKey: key)
+    private static var markKey: UInt8 = 0
+    private static func set(_ cv: UICollectionView) -> NSMutableIndexSet {
+        if let s = objc_getAssociatedObject(cv, &markKey) as? NSMutableIndexSet { return s }
+        let s = NSMutableIndexSet()
+        objc_setAssociatedObject(cv, &markKey, s, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+        return s
     }
+    // Returns true when the set changed (so the caller invalidates once).
+    static func mark(_ cv: UICollectionView, _ item: Int) -> Bool {
+        let s = set(cv)
+        if s.contains(item) { return false }
+        s.add(item)
+        LProLog.write("[feed] hid item \(item)")
+        return true
+    }
+    static func unmark(_ cv: UICollectionView, _ item: Int) -> Bool {
+        let s = set(cv)
+        if !s.contains(item) { return false }
+        s.remove(item)
+        return true
+    }
+    static func isMarked(_ cv: UICollectionView, _ item: Int) -> Bool { set(cv).contains(item) }
 }
