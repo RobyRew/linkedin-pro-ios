@@ -23,8 +23,11 @@ struct LProSettingsView: View {
             }
 
             Section("Features") {
-                comingSoon("Feed", systemImage: "list.bullet.rectangle",
-                           detail: "Hide reaction-surfaced posts, by reaction type")
+                NavigationLink {
+                    LProFeedSettingsView()
+                } label: {
+                    Label("Feed", systemImage: "list.bullet.rectangle")
+                }
                 comingSoon("Navigation Bar", systemImage: "square.grid.3x3.fill.square",
                            detail: "Reorder / hide tabs; Liquid Glass on iOS 26")
             }

@@ -17,9 +17,12 @@ struct LinkedInPro: Tweak {
         HookRegistry.shared.activate(SettingsInjectionGroup(), named: "settings-injection",
                                      requiring: ["UINavigationController"])
 
-        // Later phases activate here, each guarded by HookRegistry.activate(...) so
-        // a missing class on a new LinkedIn build is a logged skip, never a crash:
-        //   Phase 2  Feed    -> FeedFilterGroup (DashFeedUpdateBuilder build:error:)
+        // Phase 2 - Feed: hook DashFeedUpdateBuilder.build:error: (VoyagerLibs) to drop
+        // posts surfaced by a connection's reaction, filtered by reaction type.
+        HookRegistry.shared.activate(FeedFilterGroup(), named: "feed-filter",
+                                     requiring: ["DashFeedUpdateBuilder"])
+
+        // Later phases activate here, each guarded by HookRegistry.activate(...):
         //   Phase 3  NavBar  -> NavBarCustomizeGroup (+ GlassOptOut.apply())
     }
 
