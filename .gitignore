@@ -20,6 +20,7 @@ extra_dylibs/
 *.tipa
 *.deb
 Outputs/
+Output/
 
 # NEVER commit LinkedIn's binary to this public repo (copyright / ToS).
 # CI fetches the vanilla decrypted IPA at build time via a workflow input.

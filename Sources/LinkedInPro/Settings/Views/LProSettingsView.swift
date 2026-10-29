@@ -45,9 +45,10 @@ struct LProSettingsView: View {
                 Text("Exposes the Striker introspection console over USB on relaunch. Leave off unless you are debugging.")
             }
 
-            Section {
+            Section("Versions") {
+                LabeledContent("LinkedIn", value: "\(LinkedInVersion.short) (\(LinkedInVersion.build))")
+                LabeledContent("LinkedIn Professional", value: "\(GeneratedConfig.tweakVersion) (\(GeneratedConfig.commit))")
                 LabeledContent("Build", value: GeneratedConfig.buildStamp)
-                LabeledContent("Commit", value: GeneratedConfig.commit)
             }
         }
         .navigationTitle("LinkedIn Professional")

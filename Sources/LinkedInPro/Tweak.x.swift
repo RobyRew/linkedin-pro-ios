@@ -11,6 +11,12 @@ struct LinkedInPro: Tweak {
         LProLog.boot()
         HookRegistry.shared.logTargetInventory()
         LProDevKit.startIfEnabled()
+        if LProDevKit.isEnabled {
+            // DevKit-only: log each VC that appears and dump the account panel's
+            // view tree to the log when the Me tab opens (async RE over USB).
+            HookRegistry.shared.activate(DevKitViewLogGroup(), named: "devkit-viewlog",
+                                         requiring: ["UIViewController"])
+        }
 
         // Phase 1 - Settings: a version-independent UINavigationController hook, so
         // the only requirement is UIKit itself.

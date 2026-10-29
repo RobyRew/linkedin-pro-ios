@@ -16,9 +16,10 @@ BRANCH_NAME_FINAL := $(if $(BRANCH_NAME),$(BRANCH_NAME),main)
 LPRO_BUILD_STAMP ?= $(shell date +%Y%m%d-%H%M%S)
 LPRO_BUILD_NUMBER ?= $(shell cat Outputs/.build-number 2>/dev/null || echo 0)
 REPO_COMMIT ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)
+TWEAK_VERSION ?= $(shell grep -E '^Version:' control | awk '{print $$2}')
 
 $(shell mkdir -p Sources/LinkedInPro/Generated)
-$(shell printf 'enum GeneratedConfig {\n    static let repoSlug = "%s"\n    static let branchName = "%s"\n    static let buildStamp = "%s"\n    static let buildNumber = "%s"\n    static let commit = "%s"\n}\n' "$(REPO_SLUG_FINAL)" "$(BRANCH_NAME_FINAL)" "$(LPRO_BUILD_STAMP)" "$(LPRO_BUILD_NUMBER)" "$(REPO_COMMIT)" > Sources/LinkedInPro/Generated/RepoSlug.swift)
+$(shell printf 'enum GeneratedConfig {\n    static let repoSlug = "%s"\n    static let branchName = "%s"\n    static let buildStamp = "%s"\n    static let buildNumber = "%s"\n    static let commit = "%s"\n    static let tweakVersion = "%s"\n}\n' "$(REPO_SLUG_FINAL)" "$(BRANCH_NAME_FINAL)" "$(LPRO_BUILD_STAMP)" "$(LPRO_BUILD_NUMBER)" "$(REPO_COMMIT)" "$(TWEAK_VERSION)" > Sources/LinkedInPro/Generated/RepoSlug.swift)
 
 # Swift hooks live in Sources/LinkedInPro (Orion processes *.x.swift). The C
 # target holds the Orion bootstrap (Tweak.m -> orion_init) and, once wired, the
