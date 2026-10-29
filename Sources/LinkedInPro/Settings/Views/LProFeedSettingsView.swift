@@ -16,10 +16,11 @@ struct LProFeedSettingsView: View {
 
             Section {
                 Toggle("Hide reaction-surfaced posts", isOn: $options.hideReactionSurfaced)
+                Toggle("Hide comment-surfaced posts", isOn: $options.hideCommentSurfaced)
             } header: {
-                Text("Reactions")
+                Text("Surfaced by your network")
             } footer: {
-                Text("Hides posts that appear only because someone in your network reacted to them (the \u{201C}\u{2026} likes this\u{201D} posts), not posts people you follow authored.")
+                Text("Hides posts that appear only because someone in your network reacted to (\u{201C}\u{2026} likes this\u{201D}) or commented on (\u{201C}\u{2026} commented on this\u{201D}) them, not posts people you follow authored.")
             }
 
             if options.hideReactionSurfaced {

@@ -61,6 +61,9 @@ struct FeedFilterOptions: Codable, Equatable {
     // Opt-in (off): it removes real posts the user may want.
     var hideReactionSurfaced: Bool = false
     var reactions: Set<LProReaction> = Set(LProReaction.allCases)
+    // Hide posts surfaced only because a connection commented ("X commented on
+    // this"). Opt-in, same reason.
+    var hideCommentSurfaced: Bool = false
 
     // The three clean-up options ship ON: they only remove ads / promo / upsell
     // chrome, which is the point of the tweak. A user can turn each off.
@@ -79,6 +82,7 @@ struct FeedFilterOptions: Codable, Equatable {
         let d = FeedFilterOptions()
         hideReactionSurfaced = try c.decodeIfPresent(Bool.self, forKey: .hideReactionSurfaced) ?? d.hideReactionSurfaced
         reactions = try c.decodeIfPresent(Set<LProReaction>.self, forKey: .reactions) ?? d.reactions
+        hideCommentSurfaced = try c.decodeIfPresent(Bool.self, forKey: .hideCommentSurfaced) ?? d.hideCommentSurfaced
         hideSponsored = try c.decodeIfPresent(Bool.self, forKey: .hideSponsored) ?? d.hideSponsored
         hidePromotions = try c.decodeIfPresent(Bool.self, forKey: .hidePromotions) ?? d.hidePromotions
         hidePremiumUpsell = try c.decodeIfPresent(Bool.self, forKey: .hidePremiumUpsell) ?? d.hidePremiumUpsell

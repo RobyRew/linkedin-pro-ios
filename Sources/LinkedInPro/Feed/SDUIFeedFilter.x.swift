@@ -112,7 +112,8 @@ enum SDUIFeedFilter {
     // The category this card falls into, if the matching option is on; else nil.
     static func hideReason(for cell: UICollectionViewCell) -> String? {
         let opt = UserDefaults.lproFeedFilter
-        guard opt.hideSponsored || opt.hidePromotions || opt.hidePremiumUpsell || opt.hideReactionSurfaced
+        guard opt.hideSponsored || opt.hidePromotions || opt.hidePremiumUpsell
+            || opt.hideReactionSurfaced || opt.hideCommentSurfaced
         else { return nil }
 
         var budget = 400
@@ -123,6 +124,7 @@ enum SDUIFeedFilter {
         if opt.hideReactionSurfaced, let r = reactionSurfaced(labels), opt.reactions.contains(r) {
             return "reaction:\(r.rawValue)"
         }
+        if opt.hideCommentSurfaced, isCommentSurfaced(labels) { return "comment-surfaced" }
         if opt.hidePromotions, isPromotion(labels) { return "promotion" }
         return nil
     }
@@ -170,13 +172,32 @@ enum SDUIFeedFilter {
         return nil
     }
 
+    // Comment-surfaced social proof ("<name> commented on this").
+    private static func isCommentSurfaced(_ labels: [String]) -> Bool {
+        for raw in labels {
+            let t = raw.lowercased()
+            guard t.count < 90 else { continue }
+            if t.contains("commented on this") || t.contains("replied to this") { return true }
+        }
+        return false
+    }
+
+    // Recommendation / suggestion chrome. Matched in short labels only (the promo
+    // header), so a real post that merely contains a word is not caught.
+    // NEEDS-DEVICE: confirm the exact markers of the promo cards that still slip
+    // through (dump a live card's accessibility labels), then tighten this list.
     private static let promotionPhrases = [
         "people you may know", "add to your feed", "pages for you",
         "suggested for you", "recommended for you", "groups you may",
+        "you might like", "suggested post", "suggested •", "recommended •",
+        "from your network", "based on your", "trending on linkedin",
+        "newsletters for you", "people also viewed", "jobs for you",
+        "courses for you", "events for you",
     ]
     private static func isPromotion(_ labels: [String]) -> Bool {
         for raw in labels {
             let t = raw.lowercased()
+            guard t.count < 90 else { continue }
             if promotionPhrases.contains(where: { t.contains($0) }) { return true }
         }
         return false

@@ -1,15 +1,19 @@
 import Orion
 import UIKit
+import ObjectiveC.runtime
 
 // The primary settings entry: a "LinkedIn Professional" row directly ABOVE the
-// "Settings & Privacy" row, INSIDE the Me-tab account panel's bottom bar.
+// "Settings & Privacy" row, INSIDE the Me-tab account panel's bottom box
+// (NavPanelAccountAreaView).
 //
-// Everything runs from a single ClassHook<UIViewController> (viewDidLayoutSubviews),
-// which always binds - a previous attempt also hooked the Swift class
-// HomeNav.NavPanelAccountAreaView by name, but that class isn't registered at
-// launch, so its activation failed and aborted the whole group. The VC hook runs
-// after the bar has laid out, so growing the bar + repositioning its rows here
-// sticks (re-applied each layout).
+// Runs from a single ClassHook<UIViewController> (viewDidLayoutSubviews), which
+// always binds (NavPanelAccountAreaView is a Swift class not registered at
+// launch, so hooking it by name aborted the group). The box is frame-positioned
+// and bottom-pinned, so we grow it upward by one row and place our row between
+// its divider and the Settings row. The box's natural (pre-grow) height is stored
+// PER INSTANCE via an associated object, so re-growing each layout pass is
+// deterministic and never drifts across open/close - the bug behind the earlier
+// "glued together" rows was a process-wide accumulating height.
 struct AccountPanelEntryGroup: HookGroup {}
 
 private let lproRowTag = 0x4C50  // 'LP'
@@ -30,36 +34,50 @@ class NavPanelVCHook: ClassHook<UIViewController> {
 
 enum LProAccountEntry {
     private static var logged = false
+    private static var naturalKey: UInt8 = 0
 
-    // The account area (NavPanelAccountAreaView) is frame-positioned by the panel,
-    // pinned to the bottom, and is NOT a stack view (just a divider + the single
-    // "Settings & Privacy" row). Growing it and repositioning its rows each layout
-    // fought the panel's own layout and drifted across open/close ("glued
-    // together"). Instead we place OUR row as a sibling of the area, in the panel
-    // view, directly above the area - a pure function of the area's frame each
-    // pass. LinkedIn's views are never mutated, so there is nothing to drift.
     static func apply(in root: UIView?) {
         guard let root = root,
               let area = firstView(in: root, idContains: "AccountAreaViewA11yID"),
-              let host = area.superview else { return }
+              let settingsRow = firstView(in: area, idContains: "SettingsIconLabelView") else { return }
 
-        let settingsRow = firstView(in: area, idContains: "SettingsIconLabelView")
-        let rowH = (settingsRow?.frame.height ?? 0) > 0 ? settingsRow!.frame.height : 48
+        let rowH = settingsRow.frame.height > 0 ? settingsRow.frame.height : 48
+
+        // Natural (pre-grow) height, stored on THIS area instance. A fresh panel
+        // is a fresh instance with a fresh natural, so nothing accumulates.
+        let natural: CGFloat
+        if let stored = objc_getAssociatedObject(area, &naturalKey) as? CGFloat {
+            natural = stored
+        } else {
+            guard area.frame.height > rowH else { return }  // not laid out yet
+            natural = area.frame.height
+            objc_setAssociatedObject(area, &naturalKey, natural, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+        }
+        let grown = natural + rowH
+
+        // Grow the box upward (it is bottom-pinned): keep maxY, raise the top.
+        if abs(area.frame.height - grown) > 0.5 {
+            area.frame = CGRect(x: area.frame.minX, y: area.frame.maxY - grown,
+                                width: area.frame.width, height: grown)
+        }
 
         if !logged {
             logged = true
-            LProLog.write("[entry] area=\(area.frame) host=\(NSStringFromClass(type(of: host))) rowH=\(rowH)")
+            LProLog.write("[entry] area=\(area.frame) natural=\(natural) rowH=\(rowH)")
         }
 
-        let row = (host.viewWithTag(lproRowTag) as? UIControl) ?? makeRow()
-        if row.superview !== host {
+        // Our row sits INSIDE the box, directly above the Settings row.
+        let row = (area.viewWithTag(lproRowTag) as? UIControl) ?? makeRow()
+        if row.superview !== area {
             row.tag = lproRowTag
-            host.addSubview(row)
+            area.addSubview(row)
         }
-        // Directly above the account area (its divider sits at the area's top).
-        row.frame = CGRect(x: area.frame.minX, y: area.frame.minY - rowH,
-                           width: area.frame.width, height: rowH)
-        host.bringSubviewToFront(row)
+        let bottom = area.bounds.height
+        settingsRow.frame = CGRect(x: settingsRow.frame.minX, y: bottom - rowH,
+                                   width: settingsRow.frame.width, height: rowH)
+        row.frame = CGRect(x: settingsRow.frame.minX, y: bottom - 2 * rowH,
+                           width: settingsRow.frame.width, height: rowH)
+        area.bringSubviewToFront(row)
     }
 
     static func firstView(in view: UIView, idContains id: String) -> UIView? {

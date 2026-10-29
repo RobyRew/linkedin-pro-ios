@@ -41,10 +41,21 @@ struct LinkedInPro: Tweak {
         HookRegistry.shared.activate(SDUIFeedActivatorGroup(), named: "sdui-feed-activator",
                                      requiring: ["UIViewController"])
 
-        // Phase 3 - Nav bar: customize the bottom tab bar (icon-only to start).
-        // Guarded by LINTabBarItemFactory; a no-op if LinkedIn renamed it.
+        // Premium spoof: flip the client premium gates so premium UI unlocks.
+        // Guarded by the central gate class; the VoyagerLibs hooks in the group
+        // bind opportunistically (a missing one logs, non-fatal).
+        HookRegistry.shared.activate(PremiumSpoofGroup(), named: "premium-spoof",
+                                     requiring: ["LINAuthConfigurationManager"])
+
+        // Phase 3 - Nav bar: icon-only + reorder the bottom tab bar.
+        // Guarded by LINTabBarItemFactory; the reorder hook (a Swift factory)
+        // binds opportunistically.
         HookRegistry.shared.activate(NavBarCustomizeGroup(), named: "navbar-customize",
                                      requiring: ["LINTabBarItemFactory"])
+        // iOS 26 floating-glass tabs: flip the design opt-out for the main bundle.
+        // Installed early so it is in place before UIKit configures the design.
+        HookRegistry.shared.activate(GlassTabsGroup(), named: "glass-tabs",
+                                     requiring: ["NSBundle"])
     }
 
     // Orion's default handleError forwards to handleErrorDefault, which calls

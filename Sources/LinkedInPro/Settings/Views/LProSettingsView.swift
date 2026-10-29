@@ -33,6 +33,11 @@ struct LProSettingsView: View {
                 } label: {
                     Label("Navigation Bar", systemImage: "square.grid.3x3.fill.square")
                 }
+                NavigationLink {
+                    LProPremiumSettingsView()
+                } label: {
+                    Label("Premium", systemImage: "crown")
+                }
             }
 
             Section {
