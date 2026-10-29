@@ -24,6 +24,11 @@ struct LProSettingsView: View {
 
             Section("Features") {
                 NavigationLink {
+                    LProAdsSettingsView()
+                } label: {
+                    Label("Ads & Sponsored", systemImage: "megaphone")
+                }
+                NavigationLink {
                     LProFeedSettingsView()
                 } label: {
                     Label("Feed", systemImage: "list.bullet.rectangle")
@@ -62,6 +67,19 @@ struct LProSettingsView: View {
                 LabeledContent("LinkedIn", value: "\(LinkedInVersion.short) (\(LinkedInVersion.build))")
                 LabeledContent("LinkedIn Professional", value: "\(GeneratedConfig.tweakVersion) (\(GeneratedConfig.commit))")
                 LabeledContent("Build", value: GeneratedConfig.buildStamp)
+            }
+
+            Section {
+                Link(destination: URL(string: "https://github.com/RobyRew/linkedin-pro-ios")!) {
+                    LabeledContent("Source", value: "RobyRew/linkedin-pro-ios")
+                }
+                Link(destination: URL(string: "https://github.com/RobyRew")!) {
+                    LabeledContent("Made by", value: "Cosmin Calin (RobyRew)")
+                }
+            } header: {
+                Text("About")
+            } footer: {
+                Text("LinkedIn Professional is an independent customization tweak. Not affiliated with LinkedIn.")
             }
         }
         .navigationTitle("LinkedIn Professional")

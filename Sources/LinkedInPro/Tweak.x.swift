@@ -28,6 +28,10 @@ struct LinkedInPro: Tweak {
         // Hide premium upsell UI (the Me-tab "Try Premium" button, etc.) when enabled.
         HookRegistry.shared.activate(PremiumHideGroup(), named: "premium-hide",
                                      requiring: ["UIViewController"])
+        // Sponsored / promoted chrome on every screen (the feed also filters its
+        // SDUI cards before they are built).
+        HookRegistry.shared.activate(AdsHideGroup(), named: "ads-hide",
+                                     requiring: ["UIViewController"])
 
         // Phase 2 - Feed: hook DashFeedUpdateBuilder.build:error: (VoyagerLibs) to drop
         // posts surfaced by a connection's reaction, filtered by reaction type.
@@ -52,6 +56,9 @@ struct LinkedInPro: Tweak {
         // binds opportunistically.
         HookRegistry.shared.activate(NavBarCustomizeGroup(), named: "navbar-customize",
                                      requiring: ["LINTabBarItemFactory"])
+        // Runtime tab engine: live re-apply, default launch tab, long-press entry.
+        HookRegistry.shared.activate(TabEngineGroup(), named: "tab-engine",
+                                     requiring: ["LINMainNavViewController"])
         // iOS 26 floating-glass tabs: flip the design opt-out for the main bundle.
         // Installed early so it is in place before UIKit configures the design.
         HookRegistry.shared.activate(GlassTabsGroup(), named: "glass-tabs",

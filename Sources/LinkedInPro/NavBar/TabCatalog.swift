@@ -16,16 +16,17 @@ enum TabCatalog {
         let symbol: String     // SF Symbol fallback when no real icon was captured
     }
 
+    // LINMainNavTabType.rawValue is an integer enum with exactly these cases,
+    // mapped live through -tabName:
+    //   0 Feed, 1 Jobs, 2 MyNetwork, 3 Notifications, 4 More
+    // Anything else (messaging, video, games, trendsHub) is not a tab type in
+    // this build and cannot be added to the bar.
     static let extras: [Extra] = [
-        Extra(selector: "messaging",     title: "Chat / Messaging", symbol: "bubble.left.and.bubble.right.fill"),
-        Extra(selector: "jobs",          title: "Jobs",             symbol: "briefcase.fill"),
-        Extra(selector: "notifications", title: "Notifications",    symbol: "bell.fill"),
-        Extra(selector: "video",         title: "Video",            symbol: "play.rectangle.fill"),
-        Extra(selector: "games",         title: "Games",            symbol: "gamecontroller.fill"),
-        Extra(selector: "trendsHub",     title: "Trends Hub",       symbol: "chart.line.uptrend.xyaxis"),
-        Extra(selector: "more",          title: "More",             symbol: "ellipsis"),
-        Extra(selector: "myNetwork",     title: "My Network",       symbol: "person.2.fill"),
-        Extra(selector: "feed",          title: "Home / Feed",      symbol: "house.fill"),
+        Extra(selector: "feed",          title: "Home / Feed",   symbol: "house.fill"),
+        Extra(selector: "jobs",          title: "Jobs",          symbol: "briefcase.fill"),
+        Extra(selector: "myNetwork",     title: "My Network",    symbol: "person.2.fill"),
+        Extra(selector: "notifications", title: "Notifications", symbol: "bell.fill"),
+        Extra(selector: "more",          title: "More",          symbol: "ellipsis"),
     ]
 
     static func extra(for selector: String) -> Extra? {

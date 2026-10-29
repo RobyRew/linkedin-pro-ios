@@ -66,9 +66,23 @@ struct LProNavBarSettingsView: View {
             } header: {
                 Text("Tabs")
             } footer: {
-                Text("Drag to reorder. The eye hides a tab from the bar without losing its place here. At least one tab is always kept. Takes effect on relaunch.")
+                Text("Drag to reorder. The eye hides a tab from the bar without losing its place here. At least one tab is always kept. Changes are applied to the live bar immediately.")
             }
             .environment(\.editMode, .constant(.active))
+
+            Section {
+                Picker("Open on launch", selection: $options.defaultTab) {
+                    Text("LinkedIn's choice").tag("")
+                    ForEach(rows, id: \.self) { name in
+                        Text(pretty(name)).tag(name)
+                    }
+                }
+                Toggle("Long-press first tab opens settings", isOn: $options.longPressEntry)
+            } header: {
+                Text("Behavior")
+            } footer: {
+                Text("The launch tab is selected once the bar is ready. Holding the first tab for half a second opens LinkedIn Professional.")
+            }
 
             if !availableExtras.isEmpty {
                 Section {
@@ -87,11 +101,16 @@ struct LProNavBarSettingsView: View {
                 } header: {
                     Text("Add tabs")
                 } footer: {
-                    Text("Tabs LinkedIn can build but does not always show - Chat, Video, Games, Trends Hub. A tab the server already exposes is not listed here.")
+                    Text("Adds back a tab you hid. This LinkedIn build exposes only five tab types (Feed, Jobs, My Network, Notifications, More); chat and video are not tab types here, so they cannot be placed in the bar.")
                 }
             }
 
             Section {
+                Button("Apply now") {
+                    UserDefaults.lproTabBar = options
+                    let applied = TabEngine.apply()
+                    LProLog.write("[navbar] manual apply -> \(applied ? "rebuilt" : "no change")")
+                }
                 Button("Reset tab customization", role: .destructive) { reset() }
                     .disabled(options.order.isEmpty && options.hiddenTabs.isEmpty && options.extraTabs.isEmpty)
             }
@@ -99,6 +118,9 @@ struct LProNavBarSettingsView: View {
         .navigationTitle("Navigation Bar")
         .onChange(of: options) { _, newValue in
             UserDefaults.lproTabBar = newValue
+            // Live bar update; falls back to the launch-time order if the engine
+            // has not captured the controllers yet.
+            _ = TabEngine.apply()
         }
     }
 

@@ -24,6 +24,10 @@ struct TabBarOptions: Codable, Equatable {
     // (selector -> tabName) so the settings list can show its real name without
     // touching LinkedIn's factory classes itself.
     var extraTabNames: [String: String] = [:]
+    // tabName selected when the app opens; empty = whatever LinkedIn restores.
+    var defaultTab: String = ""
+    // Long press on the first bar item opens the tweak settings.
+    var longPressEntry: Bool = true
 
     init() {}
 
@@ -37,6 +41,8 @@ struct TabBarOptions: Codable, Equatable {
         hiddenTabs = try c.decodeIfPresent(Set<String>.self, forKey: .hiddenTabs) ?? d.hiddenTabs
         extraTabs = try c.decodeIfPresent([String].self, forKey: .extraTabs) ?? d.extraTabs
         extraTabNames = try c.decodeIfPresent([String: String].self, forKey: .extraTabNames) ?? d.extraTabNames
+        defaultTab = try c.decodeIfPresent(String.self, forKey: .defaultTab) ?? d.defaultTab
+        longPressEntry = try c.decodeIfPresent(Bool.self, forKey: .longPressEntry) ?? d.longPressEntry
     }
 }
 

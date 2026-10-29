@@ -8,12 +8,6 @@ struct LProFeedSettingsView: View {
 
     var body: some View {
         List {
-            Section("Clean up the feed") {
-                Toggle("Hide ads (Promoted)", isOn: $options.hideSponsored)
-                Toggle("Hide promotions & suggestions", isOn: $options.hidePromotions)
-                Toggle("Hide Premium upselling", isOn: $options.hidePremiumUpsell)
-            }
-
             Section {
                 Toggle("Hide reaction-surfaced posts", isOn: $options.hideReactionSurfaced)
                 Toggle("Hide comment-surfaced posts", isOn: $options.hideCommentSurfaced)

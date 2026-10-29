@@ -50,6 +50,7 @@ class MainNavTabsOrderHook: ClassHook<NSObject> {
 
     func mainNavTabsOrder() -> NSArray {
         let original = orig.mainNavTabsOrder()
+        TabEngine.typeFactory = target
         return TabReorder.apply(original, factory: target)
     }
 }

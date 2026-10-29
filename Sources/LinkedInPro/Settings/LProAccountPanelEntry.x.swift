@@ -17,6 +17,7 @@ import ObjectiveC.runtime
 struct AccountPanelEntryGroup: HookGroup {}
 
 private let lproRowTag = 0x4C50  // 'LP'
+private let lproRowSeparatorTag = 0x4C51
 
 class NavPanelVCHook: ClassHook<UIViewController> {
     typealias Group = AccountPanelEntryGroup
@@ -45,9 +46,6 @@ class NavPanelVCHook: ClassHook<UIViewController> {
 // is stored per area instance, so a reopened panel starts clean.
 enum LProAccountEntry {
     private static var logged = false
-    private static var appliedHeightKey: UInt8 = 0
-    private static var appliedSettingsYKey: UInt8 = 1
-    private static var attemptsKey: UInt8 = 2
     private static var swizzledClasses: [ObjectIdentifier] = []
 
     static func apply(in root: UIView?) {
@@ -89,68 +87,53 @@ enum LProAccountEntry {
     }
 
     static func applyToArea(_ area: UIView) {
-        guard let settingsRow = firstView(in: area, idContains: "SettingsIconLabelView") else { return }
+        guard let host = area.superview,
+              let settingsRow = firstView(in: area, idContains: "SettingsIconLabelView") else { return }
 
         let rowH = settingsRow.frame.height > 0 ? settingsRow.frame.height : 48
-        guard area.frame.height > rowH else { return }  // not laid out yet
 
-        let row = (area.viewWithTag(lproRowTag) as? UIControl) ?? makeRow()
-        if row.superview !== area {
+        // Our row is a sibling of the box, in the panel's own container, placed
+        // directly above it. The box itself is NOT touched: LinkedIn re-lays it
+        // out after every apply (log: "box keeps resetting"), so growing it can
+        // never stick. A view we own is never laid out by LinkedIn, so this is
+        // stable and cannot overlap the Settings row.
+        let row = (host.viewWithTag(lproRowTag) as? UIControl) ?? makeRow()
+        if row.superview !== host {
             row.tag = lproRowTag
-            area.addSubview(row)
+            host.addSubview(row)
         }
 
-        // Already applied: change NOTHING. Re-asserting subview order or frames
-        // here dirties layout and re-enters this method - the 18:22 watchdog
-        // SIGKILL was exactly that (bringSubviewToFront on every pass).
-        if let appliedH = objc_getAssociatedObject(area, &appliedHeightKey) as? CGFloat,
-           let appliedY = objc_getAssociatedObject(area, &appliedSettingsYKey) as? CGFloat,
-           abs(area.frame.height - appliedH) < 0.5,
-           abs(settingsRow.frame.minY - appliedY) < 0.5 {
-            return
+        let box = area.convert(area.bounds, to: host)
+        guard box.height > 8 else { return }  // box not laid out yet
+        let target = CGRect(x: box.minX, y: box.minY - rowH, width: box.width, height: rowH)
+        if !row.frame.equalTo(target) { row.frame = target }
+        if let line = row.viewWithTag(lproRowSeparatorTag) {
+            let h = 1 / UIScreen.main.scale
+            let f = CGRect(x: 0, y: 0, width: row.bounds.width, height: h)
+            if !line.frame.equalTo(f) { line.frame = f }
         }
 
-        // Bound the number of re-applications, in case LinkedIn resets the box
-        // on every pass: better an overlapping row than a layout loop.
-        let attempts = ((objc_getAssociatedObject(area, &attemptsKey) as? NSNumber)?.intValue ?? 0) + 1
-        objc_setAssociatedObject(area, &attemptsKey, NSNumber(value: attempts),
-                                 .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
-        if attempts > 6 {
-            if attempts == 7 { LProLog.write("[entry] box keeps resetting; leaving the row as is") }
-            return
+        // Keep scrolled content from sliding under the row.
+        if let scroll = firstScrollView(in: host), scroll.contentInset.bottom < rowH {
+            var inset = scroll.contentInset
+            inset.bottom = rowH
+            scroll.contentInset = inset
         }
 
-        // Fresh (or reset) geometry: measure it, then grow + shift.
-        let settingsY = settingsRow.frame.minY
-        let baseH = area.frame.height
-        let grown = baseH + rowH
-
-        // Grow upward; the box is bottom-pinned in the panel.
-        let newArea = CGRect(x: area.frame.minX, y: area.frame.maxY - grown,
-                             width: area.frame.width, height: grown)
-        if !area.frame.equalTo(newArea) { area.frame = newArea }
-
-        // Move the Settings row and everything below it (the Premium strip) down
-        // by one row. The divider (local y 0) stays at the top.
-        for sub in area.subviews where sub !== row && sub.frame.minY >= settingsY - 0.5 {
-            var f = sub.frame
-            f.origin.y += rowH
-            if !sub.frame.equalTo(f) { sub.frame = f }
-        }
-
-        let newRow = CGRect(x: settingsRow.frame.minX, y: settingsY,
-                            width: settingsRow.frame.width, height: rowH)
-        if !row.frame.equalTo(newRow) { row.frame = newRow }
-        if area.subviews.last !== row { area.bringSubviewToFront(row) }
-
-        objc_setAssociatedObject(area, &appliedHeightKey, grown, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
-        objc_setAssociatedObject(area, &appliedSettingsYKey, settingsY + rowH,
-                                 .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+        if host.subviews.last !== row { host.bringSubviewToFront(row) }
 
         if !logged {
             logged = true
-            LProLog.write("[entry] grew area \(baseH)->\(grown) settingsY \(settingsY)->\(settingsY + rowH) rowH=\(rowH)")
+            LProLog.write("[entry] row \(target) above box \(box)")
         }
+    }
+
+    static func firstScrollView(in view: UIView) -> UIScrollView? {
+        if let scroll = view as? UIScrollView { return scroll }
+        for sub in view.subviews {
+            if let found = firstScrollView(in: sub) { return found }
+        }
+        return nil
     }
 
     static func firstView(in view: UIView, idContains id: String) -> UIView? {
@@ -167,6 +150,14 @@ enum LProAccountEntry {
                          action: #selector(LProSettingsOpener.open), for: .touchUpInside)
         button.accessibilityLabel = "LinkedIn Professional"
         button.contentHorizontalAlignment = .leading
+        // Opaque: the row sits over the panel's scroll content area.
+        button.backgroundColor = .systemBackground
+
+        let line = UIView()
+        line.tag = lproRowSeparatorTag
+        line.backgroundColor = .separator
+        line.isUserInteractionEnabled = false
+        button.addSubview(line)
 
         let icon = UIImageView(image: UIImage(systemName: "slider.horizontal.3"))
         icon.tintColor = .label
