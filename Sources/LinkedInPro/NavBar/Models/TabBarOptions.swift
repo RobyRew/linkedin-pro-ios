@@ -28,6 +28,8 @@ struct TabBarOptions: Codable, Equatable {
     var defaultTab: String = ""
     // Long press on the first bar item opens the tweak settings.
     var longPressEntry: Bool = true
+    // Force the bottom bar alone into dark appearance.
+    var darkTabBar: Bool = false
 
     init() {}
 
@@ -43,6 +45,7 @@ struct TabBarOptions: Codable, Equatable {
         extraTabNames = try c.decodeIfPresent([String: String].self, forKey: .extraTabNames) ?? d.extraTabNames
         defaultTab = try c.decodeIfPresent(String.self, forKey: .defaultTab) ?? d.defaultTab
         longPressEntry = try c.decodeIfPresent(Bool.self, forKey: .longPressEntry) ?? d.longPressEntry
+        darkTabBar = try c.decodeIfPresent(Bool.self, forKey: .darkTabBar) ?? d.darkTabBar
     }
 }
 

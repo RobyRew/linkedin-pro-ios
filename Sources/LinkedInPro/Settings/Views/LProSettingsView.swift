@@ -74,7 +74,7 @@ struct LProSettingsView: View {
                     LabeledContent("Source", value: "RobyRew/linkedin-pro-ios")
                 }
                 Link(destination: URL(string: "https://github.com/RobyRew")!) {
-                    LabeledContent("Made by", value: "Cosmin Calin (RobyRew)")
+                    LabeledContent("Made by", value: "RobyRew")
                 }
             } header: {
                 Text("About")

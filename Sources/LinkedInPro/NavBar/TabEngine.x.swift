@@ -48,7 +48,18 @@ enum TabEngine {
     static func attach(_ tbc: UITabBarController) {
         tabBarController = tbc
         installLongPress(on: tbc)
+        applyAppearance()
         applyDefaultTabIfNeeded()
+    }
+
+    // Dark bar only: overrides the appearance of the tab bar view, not the app.
+    static func applyAppearance() {
+        guard let tbc = tabBarController else { return }
+        let dark = UserDefaults.lproTabBar.darkTabBar
+        let style: UIUserInterfaceStyle = dark ? .dark : .unspecified
+        if tbc.tabBar.overrideUserInterfaceStyle != style {
+            tbc.tabBar.overrideUserInterfaceStyle = style
+        }
     }
 
     // MARK: - long press on the first tab
