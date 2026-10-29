@@ -1,39 +1,68 @@
 import Foundation
 
-// Decides whether a decoded DashFeedUpdate was surfaced into the feed because a
-// connection reacted to it, and with which reaction.
-//
-// LinkedIn carries this only as display text in the update's header
-// (DashFeedHeaderComponent.text, a DashTextViewModel) - there is no
-// machine-readable reaction type on the header - so detection matches the header
-// string against LProReaction.headerPatterns. All reads are KVC and guarded by
-// respondsToSelector, so a model whose shape changed is a miss, not a crash. The
-// exact key path and the live text format are to be confirmed on-device (Striker
-// `obj <update>` / `watch DashFeedUpdateBuilder build:error:`).
+// What kind of feed item a decoded DashFeedUpdate is, so FeedFilter can drop it
+// per the user's toggles. LinkedIn has no single machine-readable flag for most
+// of these, so detection reads the header social-proof text plus the content
+// component's class name, all via guarded KVC. Heuristic and locale-sensitive;
+// confirmed/extended on-device (Striker `obj <update>` / the tweak log).
+enum FeedCategory: Equatable {
+    case organic
+    case reactionSurfaced(LProReaction)
+    case sponsored      // "Promoted" ads
+    case promotion      // suggestions / recommendations / follow cards
+    case premiumUpsell  // LinkedIn Premium upsell cards
+}
+
 enum FeedReason {
-    static func surfacingReaction(of update: NSObject) -> LProReaction? {
-        guard let text = headerText(of: update)?.lowercased() else { return nil }
-        for reaction in LProReaction.allCases
-        where reaction.headerPatterns.contains(where: { text.contains($0) }) {
-            return reaction
+    static func category(of update: NSObject) -> FeedCategory {
+        let header = (headerText(of: update) ?? "").lowercased()
+        let content = (contentClassName(of: update) ?? "").lowercased()
+
+        if content.contains("upsell") || content.contains("premium") || header.contains("premium") {
+            return .premiumUpsell
         }
-        return nil
+        if header.contains("promoted") || header.contains("sponsored") {
+            return .sponsored
+        }
+        for reaction in LProReaction.allCases
+        where reaction.headerPatterns.contains(where: { header.contains($0) }) {
+            return .reactionSurfaced(reaction)
+        }
+        if content.contains("recommend") || content.contains("discover") || content.contains("suggestion")
+            || promotionHeaderPatterns.contains(where: { header.contains($0) }) {
+            return .promotion
+        }
+        return .organic
     }
 
-    // update.header -> DashFeedHeaderComponent ; .text -> DashTextViewModel ; .text -> String
+    private static let promotionHeaderPatterns = [
+        "suggested", "recommended", "people you may know", "add to your feed",
+        "you might", "trending", "pages for you", "groups you",
+    ]
+
+    // update.header (DashFeedHeaderComponent).text (DashTextViewModel).text
     private static func headerText(of update: NSObject) -> String? {
         guard let header = value(update, "header") as? NSObject else { return nil }
         let textValue = value(header, "text")
-        if let string = textValue as? String { return string }
+        if let s = textValue as? String { return s }
         guard let model = textValue as? NSObject else { return nil }
         for key in ["text", "accessibilityText", "string"] {
-            if let string = value(model, key) as? String { return string }
+            if let s = value(model, key) as? String { return s }
         }
         return nil
     }
 
-    // KVC read guarded by respondsToSelector (raw value(forKey:) throws on an
-    // unknown key).
+    // The class of the update's main content component (e.g. a premium upsell or
+    // a recommendation carousel vs an ordinary post component).
+    private static func contentClassName(of update: NSObject) -> String? {
+        for key in ["content", "contentUnion", "footer", "annotation"] {
+            if let component = value(update, key) as? NSObject {
+                return NSStringFromClass(type(of: component))
+            }
+        }
+        return nil
+    }
+
     private static func value(_ object: NSObject, _ key: String) -> Any? {
         guard object.responds(to: NSSelectorFromString(key)) else { return nil }
         return object.value(forKey: key)

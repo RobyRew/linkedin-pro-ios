@@ -1,16 +1,25 @@
 import SwiftUI
 
-// Feed filter settings: a master switch plus per-reaction toggles. Writes back to
-// UserDefaults.lproFeedFilter, which FeedFilter.x.swift reads on each decode.
+// Feed filter settings. Writes back to UserDefaults.lproFeedFilter, which
+// FeedFilter.x.swift reads on each decode and the premium-hide hook reads on
+// each screen.
 struct LProFeedSettingsView: View {
     @State private var options = UserDefaults.lproFeedFilter
 
     var body: some View {
         List {
+            Section("Clean up the feed") {
+                Toggle("Hide ads (Promoted)", isOn: $options.hideSponsored)
+                Toggle("Hide promotions & suggestions", isOn: $options.hidePromotions)
+                Toggle("Hide Premium upselling", isOn: $options.hidePremiumUpsell)
+            }
+
             Section {
                 Toggle("Hide reaction-surfaced posts", isOn: $options.hideReactionSurfaced)
+            } header: {
+                Text("Reactions")
             } footer: {
-                Text("Hides posts that appear only because someone in your network reacted to them (the \u{201C}\u{2026} likes this\u{201D} posts), not posts people you follow actually authored.")
+                Text("Hides posts that appear only because someone in your network reacted to them (the \u{201C}\u{2026} likes this\u{201D} posts), not posts people you follow authored.")
             }
 
             if options.hideReactionSurfaced {

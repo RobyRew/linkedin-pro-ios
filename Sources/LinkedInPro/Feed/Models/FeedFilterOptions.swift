@@ -55,10 +55,16 @@ enum LProReaction: String, CaseIterable, Codable, Hashable {
 }
 
 struct FeedFilterOptions: Codable, Equatable {
-    // Master switch for hiding posts surfaced by a connection's reaction.
+    // Hide posts surfaced only because a connection reacted (by reaction type).
     var hideReactionSurfaced: Bool = false
-    // Which reaction types to hide (all by default, refined in settings).
     var reactions: Set<LProReaction> = Set(LProReaction.allCases)
+
+    // Hide "Promoted"/sponsored posts (ads).
+    var hideSponsored: Bool = false
+    // Hide LinkedIn's suggestion/recommendation promo cards (not real posts).
+    var hidePromotions: Bool = false
+    // Hide premium upsell cards in the feed AND the premium upsell buttons in the UI.
+    var hidePremiumUpsell: Bool = false
 }
 
 extension UserDefaults {

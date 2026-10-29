@@ -25,6 +25,9 @@ struct LinkedInPro: Tweak {
         // The real entry: a row above "Settings & Privacy" in the Me-tab account panel.
         HookRegistry.shared.activate(AccountPanelEntryGroup(), named: "account-panel-entry",
                                      requiring: ["UIViewController"])
+        // Hide premium upsell UI (the Me-tab "Try Premium" button, etc.) when enabled.
+        HookRegistry.shared.activate(PremiumHideGroup(), named: "premium-hide",
+                                     requiring: ["UIViewController"])
 
         // Phase 2 - Feed: hook DashFeedUpdateBuilder.build:error: (VoyagerLibs) to drop
         // posts surfaced by a connection's reaction, filtered by reaction type.

@@ -4,58 +4,44 @@ import UIKit
 // The primary settings entry: a "LinkedIn Professional" row directly ABOVE the
 // "Settings & Privacy" row, INSIDE the Me-tab account panel's bottom bar.
 //
-// Confirmed on-device (Striker dump of HomeNav.NavPanelViewController): the bar
-// is HomeNav.NavPanelAccountAreaView (a11y id ...AccountAreaViewA11yID), a
-// bottom-pinned area ~65pt tall holding a divider + the Settings row
-// (NavPanelMenuItemView, a11y id NavPanelAccountAreaViewSettingsIconLabelView).
-//
-// Two hooks:
-//   1. NavPanelViewController.viewDidLayoutSubviews grows the bar by one row,
-//      keeping its bottom pinned (the VC owns the bar's frame).
-//   2. NavPanelAccountAreaView.layoutSubviews bottom-aligns the Settings row and
-//      places our row just above it, inside the (now taller) bar - so it's
-//      frontmost and tappable, not floating over the scroll view.
+// Everything runs from a single ClassHook<UIViewController> (viewDidLayoutSubviews),
+// which always binds - a previous attempt also hooked the Swift class
+// HomeNav.NavPanelAccountAreaView by name, but that class isn't registered at
+// launch, so its activation failed and aborted the whole group. The VC hook runs
+// after the bar has laid out, so growing the bar + repositioning its rows here
+// sticks (re-applied each layout).
 struct AccountPanelEntryGroup: HookGroup {}
 
 private let lproRowTag = 0x4C50  // 'LP'
-private let lproRowHeight: CGFloat = 48
 
 class NavPanelVCHook: ClassHook<UIViewController> {
     typealias Group = AccountPanelEntryGroup
 
     func viewDidLayoutSubviews() {
         orig.viewDidLayoutSubviews()
-        guard NSStringFromClass(type(of: target)).contains("NavPanelViewController"),
-              let area = LProAccountEntry.firstView(in: target.view, idContains: "AccountAreaViewA11yID")
-        else { return }
-        // Capture the natural one-row height, then keep the bar grown by one row.
-        LProAccountEntry.oneRowHeight = min(LProAccountEntry.oneRowHeight, area.frame.height)
-        let targetHeight = LProAccountEntry.oneRowHeight + lproRowHeight
-        if area.frame.height < targetHeight - 0.5 {
-            let bottom = area.frame.maxY
-            area.frame = CGRect(x: area.frame.minX, y: bottom - targetHeight,
-                                width: area.frame.width, height: targetHeight)
-        }
-    }
-}
-
-class NavPanelAccountAreaHook: ClassHook<UIView> {
-    typealias Group = AccountPanelEntryGroup
-    static let targetName = "HomeNav.NavPanelAccountAreaView"
-
-    func layoutSubviews() {
-        orig.layoutSubviews()
-        LProAccountEntry.layout(in: target)
+        guard NSStringFromClass(type(of: target)).contains("NavPanelViewController") else { return }
+        LProAccountEntry.apply(in: target.view)
     }
 }
 
 enum LProAccountEntry {
     static var oneRowHeight: CGFloat = .greatestFiniteMagnitude
 
-    static func layout(in area: UIView) {
-        guard let settingsRow = area.subviews.first(where: {
-            ($0.accessibilityIdentifier ?? "").contains("SettingsIconLabelView")
-        }) else { return }
+    static func apply(in root: UIView?) {
+        guard let root = root,
+              let area = firstView(in: root, idContains: "AccountAreaViewA11yID"),
+              let settingsRow = firstView(in: area, idContains: "SettingsIconLabelView") else { return }
+
+        let rowH = settingsRow.frame.height > 0 ? settingsRow.frame.height : 48
+        oneRowHeight = min(oneRowHeight, area.frame.height)
+        let targetHeight = oneRowHeight + rowH
+
+        // Grow the bottom bar upward by one row, keeping its bottom pinned.
+        if area.frame.height < targetHeight - 0.5 {
+            let bottom = area.frame.maxY
+            area.frame = CGRect(x: area.frame.minX, y: bottom - targetHeight,
+                                width: area.frame.width, height: targetHeight)
+        }
 
         let row = (area.viewWithTag(lproRowTag) as? UIControl) ?? makeRow()
         if row.superview !== area {
@@ -63,9 +49,7 @@ enum LProAccountEntry {
             area.addSubview(row)
         }
 
-        let rowH = settingsRow.frame.height > 0 ? settingsRow.frame.height : lproRowHeight
-        // Pin the Settings row to the bottom of the (grown) bar; our row sits
-        // directly above it.
+        // Pin Settings to the bottom of the grown bar; our row sits just above it.
         let settingsY = area.bounds.height - rowH
         settingsRow.frame = CGRect(x: settingsRow.frame.minX, y: settingsY,
                                    width: settingsRow.frame.width, height: rowH)
