@@ -32,6 +32,9 @@ struct LinkedInPro: Tweak {
         // SDUI cards before they are built).
         HookRegistry.shared.activate(AdsHideGroup(), named: "ads-hide",
                                      requiring: ["UIViewController"])
+        // Observation only: summarise SDUI JSON payloads so the sponsored marker
+        // can be identified (the component model is Swift-only, see the file).
+        SDUIPayloadProbe.install()
 
         // Phase 2 - Feed: hook DashFeedUpdateBuilder.build:error: (VoyagerLibs) to drop
         // posts surfaced by a connection's reaction, filtered by reaction type.
