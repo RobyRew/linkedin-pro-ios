@@ -102,6 +102,7 @@ enum SDUICellFilterInstaller {
                 cell.isHidden = true
                 if SDUIFeedFilter.mark(cv, indexPath.item) {
                     SDUIFeedStats.note(reason)
+                    LProLog.write("[feed] hid item \(indexPath.item) (\(reason))")
                     cv.collectionViewLayout.invalidateLayout()
                 }
             } else {
@@ -333,7 +334,6 @@ enum SDUIFeedFilter {
         let s = set(cv)
         if s.contains(item) { return false }
         s.add(item)
-        LProLog.write("[feed] hid item \(item)")
         return true
     }
     static func unmark(_ cv: UICollectionView, _ item: Int) -> Bool {

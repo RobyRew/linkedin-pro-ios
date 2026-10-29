@@ -43,20 +43,6 @@ class NavPanelVCHook: ClassHook<UIViewController> {
 // LinkedIn re-runs its own layout after this hook, so the operation is redone
 // whenever the geometry it produced is no longer present. The applied geometry
 // is stored per area instance, so a reopened panel starts clean.
-// LinkedIn re-lays the account box out after the VC's viewDidLayoutSubviews
-// (the live dump shows it snapping back to its natural 89 pt), so the fix is
-// re-applied from a swizzled -layoutSubviews on the box's own class. That class
-// is Swift-only and not registered at launch, so it is looked up from the live
-// instance and swizzled once per class.
-private final class LProAreaLayoutFixer: NSObject {
-    @objc dynamic func lproLayoutSubviews() {
-        lproLayoutSubviews()  // exchanged: this is the original implementation
-        // The IMP is installed on the account-area UIView class, so `self` is a
-        // UIView; the declared type here is only where the IMP function lives.
-        LProAccountEntry.applyToArea(unsafeBitCast(self, to: UIView.self))
-    }
-}
-
 enum LProAccountEntry {
     private static var logged = false
     private static var appliedHeightKey: UInt8 = 0
@@ -70,20 +56,34 @@ enum LProAccountEntry {
         applyToArea(area)
     }
 
+    // Adds an override on the box's class whose block calls the implementation
+    // it replaced and then re-applies the row. Deliberately NOT
+    // method_exchangeImplementations: `class_getInstanceMethod` returns UIView's
+    // inherited Method, and exchanging that swaps UIView's own layoutSubviews,
+    // after which every plain UIView was sent our selector
+    // (-[UIView ...]: unrecognized selector ... in layoutSublayersOfLayer).
     static func ensureLayoutFixer(_ area: UIView) {
         let cls: AnyClass = type(of: area)
         let id = ObjectIdentifier(cls)
         guard !swizzledClasses.contains(id) else { return }
         swizzledClasses.append(id)
 
-        let sel = NSSelectorFromString("lproLayoutSubviews")
-        guard let original = class_getInstanceMethod(cls, NSSelectorFromString("layoutSubviews")),
-              let replacement = class_getInstanceMethod(LProAreaLayoutFixer.self,
-                                                        #selector(LProAreaLayoutFixer.lproLayoutSubviews)),
-              class_addMethod(cls, sel, method_getImplementation(replacement),
-                              method_getTypeEncoding(replacement)),
-              let added = class_getInstanceMethod(cls, sel) else { return }
-        method_exchangeImplementations(original, added)
+        let sel = NSSelectorFromString("layoutSubviews")
+        guard let method = class_getInstanceMethod(cls, sel) else { return }
+        let types = method_getTypeEncoding(method)
+        typealias Fn = @convention(c) (AnyObject, Selector) -> Void
+        let orig = unsafeBitCast(method_getImplementation(method), to: Fn.self)
+
+        let block: @convention(block) (AnyObject) -> Void = { obj in
+            orig(obj, sel)
+            LProAccountEntry.applyToArea(unsafeBitCast(obj, to: UIView.self))
+        }
+        let imp = imp_implementationWithBlock(block)
+        if !class_addMethod(cls, sel, imp, types) {
+            // The class implements layoutSubviews itself; replace it with a block
+            // that calls the captured implementation first.
+            method_setImplementation(method, imp)
+        }
         LProLog.write("[entry] hooked layoutSubviews on \(NSStringFromClass(cls))")
     }
 
