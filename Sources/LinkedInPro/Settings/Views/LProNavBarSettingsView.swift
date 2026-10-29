@@ -20,12 +20,17 @@ struct LProNavBarSettingsView: View {
         return out
     }
 
-    // Extras that are not already in the bar (by selector or by resolved name).
+    // Extras that are not already in the bar. Read from stored state only: this
+    // view must not touch LinkedIn's factory classes (constructing one traps).
     private var availableExtras: [TabCatalog.Extra] {
         TabCatalog.extras.filter { extra in
             if options.extraTabs.contains(extra.selector) { return false }
-            if let name = TabCatalog.resolvedName(forSelector: extra.selector),
-               options.discoveredTabs.contains(name) { return false }
+            let key = TabCatalog.normalized(extra.selector)
+            if options.discoveredTabs.contains(where: { TabCatalog.normalized($0) == key }) {
+                return false
+            }
+            if let known = options.extraTabNames[extra.selector],
+               options.discoveredTabs.contains(known) { return false }
             return true
         }
     }
@@ -140,14 +145,9 @@ struct LProNavBarSettingsView: View {
 
     private func add(_ extra: TabCatalog.Extra) {
         guard !options.extraTabs.contains(extra.selector) else { return }
+        // The tab hook resolves the selector to its real tabName on the next
+        // launch and appends it; until then it is listed as added.
         options.extraTabs.append(extra.selector)
-        // If the factory already resolves the tab, place it in the list now;
-        // otherwise the reorder hook appends it after the next relaunch.
-        if let name = TabCatalog.resolvedName(forSelector: extra.selector),
-           !options.discoveredTabs.contains(name) {
-            options.discoveredTabs.append(name)
-            options.order.append(name)
-        }
     }
 
     private func move(from source: IndexSet, to destination: Int) {

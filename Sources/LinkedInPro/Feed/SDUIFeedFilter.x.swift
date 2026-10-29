@@ -52,8 +52,7 @@ enum SDUIFeedActivator {
     static var activated = false
 
     static func activate(feedRoot: UIView?) {
-        HookRegistry.shared.activate(SDUIFeedCellFilterGroup(), named: "sdui-cell-filter",
-                                     requiring: ["_TtCO4SDUI3Zen33ComponentCollectionViewDataSource"])
+        SDUICellFilterInstaller.install()
         if LProDevKit.isEnabled, let root = feedRoot {
             let logPath = (NSTemporaryDirectory() as NSString).appendingPathComponent("linkedinpro.log")
             StrikerDumpView(Unmanaged.passUnretained(root).toOpaque(), logPath)
@@ -64,40 +63,82 @@ enum SDUIFeedActivator {
 
 // MARK: - cell filter (Zen data source)
 
-struct SDUIFeedCellFilterGroup: HookGroup {}
+// Hooked with the runtime directly, not Orion. Orion derives a selector from the
+// Swift method name ("collectionView:willDisplay:forItemAt:") while the class
+// implements the UIKit one ("collectionView:willDisplayCell:forItemAtIndexPath:"),
+// so its ClassHook failed to bind:
+//   [orion] Failed to hook method -[ComponentCollectionViewDataSource
+//           collectionView:willDisplay:forItemAt:] (Could not hook method)
+// Selectors confirmed live with `methods _TtCO4SDUI3Zen33ComponentCollectionViewDataSource`.
+enum SDUICellFilterInstaller {
+    private static var installed = false
 
-class ZenComponentDataSourceHook: ClassHook<NSObject> {
-    typealias Group = SDUIFeedCellFilterGroup
-    static let targetName = "_TtCO4SDUI3Zen33ComponentCollectionViewDataSource"
+    static func install() {
+        guard !installed else { return }
+        let name = "_TtCO4SDUI3Zen33ComponentCollectionViewDataSource"
+        guard let cls = NSClassFromString(name) else { return }
+        installed = true
 
-    func collectionView(_ collectionView: UICollectionView,
-                        willDisplay cell: UICollectionViewCell,
-                        forItemAt indexPath: IndexPath) {
-        orig.collectionView(collectionView, willDisplay: cell, forItemAt: indexPath)
-        guard SDUIFeedFilter.isFeed(collectionView) else { return }
-
-        if let reason = SDUIFeedFilter.hideReason(for: cell) {
-            cell.isHidden = true
-            if SDUIFeedFilter.mark(collectionView, indexPath.item) {
-                SDUIFeedStats.note(reason)
-                collectionView.collectionViewLayout.invalidateLayout()
-            }
-        } else {
-            cell.isHidden = false
-            if SDUIFeedFilter.unmark(collectionView, indexPath.item) {
-                collectionView.collectionViewLayout.invalidateLayout()
-            }
-        }
+        hookWillDisplay(cls)
+        hookSize(cls)
+        LProLog.write("[feed] installed cell filter on \(name)")
     }
 
-    func collectionView(_ collectionView: UICollectionView,
-                        layout collectionViewLayout: UICollectionViewLayout,
-                        sizeForItemAt indexPath: IndexPath) -> CGSize {
-        let size = orig.collectionView(collectionView, layout: collectionViewLayout, sizeForItemAt: indexPath)
-        if SDUIFeedFilter.isMarked(collectionView, indexPath.item) {
-            return CGSize(width: size.width, height: 0)
+    private static func hookWillDisplay(_ cls: AnyClass) {
+        let sel = NSSelectorFromString("collectionView:willDisplayCell:forItemAtIndexPath:")
+        guard let method = class_getInstanceMethod(cls, sel) else { return }
+        let types = method_getTypeEncoding(method)
+        typealias Fn = @convention(c) (AnyObject, Selector, UICollectionView,
+                                       UICollectionViewCell, NSIndexPath) -> Void
+        let orig = unsafeBitCast(method_getImplementation(method), to: Fn.self)
+
+        let block: @convention(block) (AnyObject, UICollectionView, UICollectionViewCell,
+                                       NSIndexPath) -> Void = { obj, cv, cell, ip in
+            orig(obj, sel, cv, cell, ip)
+            guard SDUIFeedFilter.isFeed(cv) else { return }
+            let indexPath = ip as IndexPath
+
+            if let reason = SDUIFeedFilter.hideReason(for: cell) {
+                cell.isHidden = true
+                if SDUIFeedFilter.mark(cv, indexPath.item) {
+                    SDUIFeedStats.note(reason)
+                    cv.collectionViewLayout.invalidateLayout()
+                }
+            } else {
+                cell.isHidden = false
+                if SDUIFeedFilter.unmark(cv, indexPath.item) {
+                    cv.collectionViewLayout.invalidateLayout()
+                }
+            }
         }
-        return size
+        replace(cls, sel, method, imp_implementationWithBlock(block), types)
+    }
+
+    private static func hookSize(_ cls: AnyClass) {
+        let sel = NSSelectorFromString("collectionView:layout:sizeForItemAtIndexPath:")
+        guard let method = class_getInstanceMethod(cls, sel) else { return }
+        let types = method_getTypeEncoding(method)
+        typealias Fn = @convention(c) (AnyObject, Selector, UICollectionView,
+                                       UICollectionViewLayout, NSIndexPath) -> CGSize
+        let orig = unsafeBitCast(method_getImplementation(method), to: Fn.self)
+
+        let block: @convention(block) (AnyObject, UICollectionView, UICollectionViewLayout,
+                                       NSIndexPath) -> CGSize = { obj, cv, layout, ip in
+            let size = orig(obj, sel, cv, layout, ip)
+            if SDUIFeedFilter.isMarked(cv, (ip as IndexPath).item) {
+                return CGSize(width: size.width, height: 0)
+            }
+            return size
+        }
+        replace(cls, sel, method, imp_implementationWithBlock(block), types)
+    }
+
+    // Add an override on the class when the implementation is inherited; else
+    // replace in place. Called once per class, so no re-entrancy.
+    private static func replace(_ cls: AnyClass, _ sel: Selector, _ method: Method,
+                                _ imp: IMP, _ types: UnsafePointer<CChar>?) {
+        if class_addMethod(cls, sel, imp, types) { return }
+        method_setImplementation(method, imp)
     }
 }
 
@@ -123,7 +164,7 @@ enum SDUIFeedFilter {
     static func isFeed(_ collectionView: UICollectionView) -> Bool {
         var responder: UIResponder? = collectionView
         var hops = 0
-        while let r = responder, hops < 12 {
+        while let r = responder, hops < 24 {
             if NSStringFromClass(type(of: r)).contains("FeedSDUIViewController") { return true }
             responder = r.next
             hops += 1

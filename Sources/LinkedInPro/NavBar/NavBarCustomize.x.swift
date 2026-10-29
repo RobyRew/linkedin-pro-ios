@@ -63,10 +63,13 @@ enum TabReorder {
         var named = items.map { (name: TabCatalog.tabName($0), obj: $0) }
 
         // Extras first, so they join the discovered list and can be ordered and
-        // icon-cached like any other tab.
+        // icon-cached like any other tab. Resolved through LinkedIn's own live
+        // factory instance (never one we create - that traps).
+        var extraNames = opt.extraTabNames
         for selector in opt.extraTabs {
             guard let extra = TabCatalog.tabType(selector: selector, factory: factory) else { continue }
             let name = TabCatalog.tabName(extra)
+            extraNames[selector] = name
             if !named.contains(where: { $0.name == name }) {
                 named.append((name: name, obj: extra))
                 LProLog.write("[navbar] added tab \(name) from \(selector)")
@@ -74,8 +77,9 @@ enum TabReorder {
         }
 
         let names = named.map { $0.name }
-        if opt.discoveredTabs != names {
+        if opt.discoveredTabs != names || opt.extraTabNames != extraNames {
             opt.discoveredTabs = names
+            opt.extraTabNames = extraNames
             UserDefaults.lproTabBar = opt
             LProLog.write("[navbar] tabs discovered: \(names)")
         }

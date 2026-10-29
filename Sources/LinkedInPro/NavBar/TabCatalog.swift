@@ -3,8 +3,12 @@ import ObjectiveC.runtime
 
 // The tab types LinkedIn's factory can build, minus the center "post" action
 // (that is a floating button, not a bar tab). Selector names are the factory's
-// own zero-argument methods; tabName is read from the returned LINMainNavTabType
-// at runtime so nothing here depends on the display string.
+// own zero-argument methods.
+//
+// The factory class is Swift and is only ever used through the live instance
+// Orion hands MainNavTabsOrderHook. Constructing one ourselves
+// (`NSObject.Type.init()`) traps inside LinkedIn, so nothing here instantiates
+// it: the settings UI resolves names from UserDefaults only.
 enum TabCatalog {
     struct Extra {
         let selector: String   // selector on MainNavTabTypeFactory
@@ -45,30 +49,16 @@ enum TabCatalog {
         return NSStringFromClass(type(of: tabType))
     }
 
-    // A fresh factory instance. The class is registered lazily by LinkedIn, so
-    // this can return nil before the tab bar has been built once.
-    static func makeFactory() -> NSObject? {
-        guard let cls = NSClassFromString("_TtC14HomeNavAPIImpl21MainNavTabTypeFactory") as? NSObject.Type
-        else { return nil }
-        return cls.init()
-    }
-
+    // Calls one of the factory's zero-argument tab-type methods on the LIVE
+    // instance (never a model we create) and returns the tab type object.
     static func tabType(selector: String, factory: NSObject?) -> NSObject? {
         guard let factory, factory.responds(to: NSSelectorFromString(selector)) else { return nil }
         return factory.perform(NSSelectorFromString(selector))?.takeUnretainedValue() as? NSObject
     }
 
-    private static var resolvedNames: [String: String] = [:]
-
-    // tabName for an extra selector, resolved through the live factory. nil when
-    // the factory is not registered yet (call again after the bar exists).
-    // Cached once resolved: settings reads this every render.
-    static func resolvedName(forSelector selector: String) -> String? {
-        if let cached = resolvedNames[selector] { return cached }
-        guard let type = tabType(selector: selector, factory: makeFactory()) else { return nil }
-        let name = tabName(type)
-        resolvedNames[selector] = name
-        return name
+    // "myNetwork" and "My Network" / "MY_NETWORK" compare equal.
+    static func normalized(_ s: String) -> String {
+        s.lowercased().filter { $0.isLetter || $0.isNumber }
     }
 }
 

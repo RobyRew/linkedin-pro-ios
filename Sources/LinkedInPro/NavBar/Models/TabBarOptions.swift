@@ -20,6 +20,10 @@ struct TabBarOptions: Codable, Equatable {
     // (e.g. "messaging", "video", "games"). LinkedIn ships factories for these
     // but only surfaces some of them by default.
     var extraTabs: [String] = []
+    // The tabName each added extra resolved to, written by the tab hook
+    // (selector -> tabName) so the settings list can show its real name without
+    // touching LinkedIn's factory classes itself.
+    var extraTabNames: [String: String] = [:]
 
     init() {}
 
@@ -32,6 +36,7 @@ struct TabBarOptions: Codable, Equatable {
         discoveredTabs = try c.decodeIfPresent([String].self, forKey: .discoveredTabs) ?? d.discoveredTabs
         hiddenTabs = try c.decodeIfPresent(Set<String>.self, forKey: .hiddenTabs) ?? d.hiddenTabs
         extraTabs = try c.decodeIfPresent([String].self, forKey: .extraTabs) ?? d.extraTabs
+        extraTabNames = try c.decodeIfPresent([String: String].self, forKey: .extraTabNames) ?? d.extraTabNames
     }
 }
 

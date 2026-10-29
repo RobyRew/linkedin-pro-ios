@@ -8,12 +8,12 @@ import ObjectiveC.runtime
 //
 // Runs from a single ClassHook<UIViewController> (viewDidLayoutSubviews), which
 // always binds (NavPanelAccountAreaView is a Swift class not registered at
-// launch, so hooking it by name aborted the group). The box is frame-positioned
-// and bottom-pinned, so we grow it upward by one row and place our row between
-// its divider and the Settings row. The box's natural (pre-grow) height is stored
-// PER INSTANCE via an associated object, so re-growing each layout pass is
-// deterministic and never drifts across open/close - the bug behind the earlier
-// "glued together" rows was a process-wide accumulating height.
+// launch, so hooking it by name aborted the group). Geometry observed in the
+// live nav-panel dump: the box is frame-positioned and bottom-pinned, and its
+// children keep their local positions when it grows. The applied height and the
+// moved Settings-row Y are stored PER INSTANCE via associated objects, so a
+// layout pass that LinkedIn re-runs does not stack another row and a reopened
+// panel starts from its own natural geometry.
 struct AccountPanelEntryGroup: HookGroup {}
 
 private let lproRowTag = 0x4C50  // 'LP'
@@ -32,68 +32,110 @@ class NavPanelVCHook: ClassHook<UIViewController> {
     }
 }
 
+// The account box is a plain, frame-positioned container (nav panel dump:
+// {0,819,374,89} = 1pt divider + 16pt gap + 48pt Settings row + 24pt Premium
+// strip). It is not a stack view, and its subviews keep their local positions
+// when it grows, so adding a row means: grow the box upward by one row height
+// and shift every sibling from the Settings row down by the same amount. That
+// keeps the Settings row and the Premium strip at the same screen position and
+// frees the slot directly under the divider for our row.
+//
+// LinkedIn re-runs its own layout after this hook, so the operation is redone
+// whenever the geometry it produced is no longer present. The applied geometry
+// is stored per area instance, so a reopened panel starts clean.
+// LinkedIn re-lays the account box out after the VC's viewDidLayoutSubviews
+// (the live dump shows it snapping back to its natural 89 pt), so the fix is
+// re-applied from a swizzled -layoutSubviews on the box's own class. That class
+// is Swift-only and not registered at launch, so it is looked up from the live
+// instance and swizzled once per class.
+private final class LProAreaLayoutFixer: NSObject {
+    @objc dynamic func lproLayoutSubviews() {
+        lproLayoutSubviews()  // exchanged: this is the original implementation
+        // The IMP is installed on the account-area UIView class, so `self` is a
+        // UIView; the declared type here is only where the IMP function lives.
+        LProAccountEntry.applyToArea(unsafeBitCast(self, to: UIView.self))
+    }
+}
+
 enum LProAccountEntry {
     private static var logged = false
-    private static var naturalKey: UInt8 = 0
-    private static var settingsYKey: UInt8 = 1
+    private static var appliedHeightKey: UInt8 = 0
+    private static var appliedSettingsYKey: UInt8 = 1
+    private static var swizzledClasses: [ObjectIdentifier] = []
 
     static func apply(in root: UIView?) {
         guard let root = root,
-              let area = firstView(in: root, idContains: "AccountAreaViewA11yID"),
-              let settingsRow = firstView(in: area, idContains: "SettingsIconLabelView") else { return }
+              let area = firstView(in: root, idContains: "AccountAreaViewA11yID") else { return }
+        ensureLayoutFixer(area)
+        applyToArea(area)
+    }
+
+    static func ensureLayoutFixer(_ area: UIView) {
+        let cls: AnyClass = type(of: area)
+        let id = ObjectIdentifier(cls)
+        guard !swizzledClasses.contains(id) else { return }
+        swizzledClasses.append(id)
+
+        let sel = NSSelectorFromString("lproLayoutSubviews")
+        guard let original = class_getInstanceMethod(cls, NSSelectorFromString("layoutSubviews")),
+              let replacement = class_getInstanceMethod(LProAreaLayoutFixer.self,
+                                                        #selector(LProAreaLayoutFixer.lproLayoutSubviews)),
+              class_addMethod(cls, sel, method_getImplementation(replacement),
+                              method_getTypeEncoding(replacement)),
+              let added = class_getInstanceMethod(cls, sel) else { return }
+        method_exchangeImplementations(original, added)
+        LProLog.write("[entry] hooked layoutSubviews on \(NSStringFromClass(cls))")
+    }
+
+    static func applyToArea(_ area: UIView) {
+        guard let settingsRow = firstView(in: area, idContains: "SettingsIconLabelView") else { return }
 
         let rowH = settingsRow.frame.height > 0 ? settingsRow.frame.height : 48
-
-        // Natural (pre-grow) height, stored on THIS area instance. A fresh panel
-        // is a fresh instance with a fresh natural, so nothing accumulates.
-        let natural: CGFloat
-        if let stored = objc_getAssociatedObject(area, &naturalKey) as? CGFloat {
-            natural = stored
-        } else {
-            guard area.frame.height > rowH else { return }  // not laid out yet
-            natural = area.frame.height
-            objc_setAssociatedObject(area, &naturalKey, natural, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
-        }
-
-        // The Settings row's pre-grow position, also stored per area instance:
-        // after the first pass its frame has moved down, so reading it again
-        // would stack our row on top of it.
-        let settingsY: CGFloat
-        if let stored = objc_getAssociatedObject(area, &settingsYKey) as? CGFloat {
-            settingsY = stored
-        } else {
-            settingsY = settingsRow.frame.minY
-            objc_setAssociatedObject(area, &settingsYKey, settingsY, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
-        }
-
-        // Our row goes directly above the Settings row, keeping that row's own
-        // gap below the divider. The box only needs one extra row of height.
-        let grown = natural + rowH
-
-        // Grow the box upward (it is bottom-pinned): keep maxY, raise the top.
-        if abs(area.frame.height - grown) > 0.5 {
-            area.frame = CGRect(x: area.frame.minX, y: area.frame.maxY - grown,
-                                width: area.frame.width, height: grown)
-        }
-        // If the parent snapped the box back to its natural height this pass,
-        // leave the Settings row alone rather than pushing it out of the box.
-        guard area.frame.height >= settingsY + 2 * rowH - 0.5 else { return }
-
-        if !logged {
-            logged = true
-            LProLog.write("[entry] area=\(area.frame) natural=\(natural) settingsY=\(settingsY) rowH=\(rowH)")
-        }
+        guard area.frame.height > rowH else { return }  // not laid out yet
 
         let row = (area.viewWithTag(lproRowTag) as? UIControl) ?? makeRow()
         if row.superview !== area {
             row.tag = lproRowTag
             area.addSubview(row)
         }
+
+        // Already applied and the parent has not reset it: only make sure our
+        // row is still on top.
+        if let appliedH = objc_getAssociatedObject(area, &appliedHeightKey) as? CGFloat,
+           let appliedY = objc_getAssociatedObject(area, &appliedSettingsYKey) as? CGFloat,
+           abs(area.frame.height - appliedH) < 0.5,
+           abs(settingsRow.frame.minY - appliedY) < 0.5 {
+            area.bringSubviewToFront(row)
+            return
+        }
+
+        // Fresh (or reset) geometry: measure it, then grow + shift.
+        let settingsY = settingsRow.frame.minY
+        let baseH = area.frame.height
+        let grown = baseH + rowH
+
+        // Grow upward; the box is bottom-pinned in the panel.
+        area.frame = CGRect(x: area.frame.minX, y: area.frame.maxY - grown,
+                            width: area.frame.width, height: grown)
+
+        // Move the Settings row and everything below it (the Premium strip) down
+        // by one row. The divider (local y 0) stays at the top.
+        for sub in area.subviews where sub !== row && sub.frame.minY >= settingsY - 0.5 {
+            sub.frame.origin.y += rowH
+        }
+
         row.frame = CGRect(x: settingsRow.frame.minX, y: settingsY,
                            width: settingsRow.frame.width, height: rowH)
-        settingsRow.frame = CGRect(x: settingsRow.frame.minX, y: settingsY + rowH,
-                                   width: settingsRow.frame.width, height: rowH)
         area.bringSubviewToFront(row)
+
+        objc_setAssociatedObject(area, &appliedHeightKey, grown, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+        objc_setAssociatedObject(area, &appliedSettingsYKey, settingsY + rowH,
+                                 .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+
+        if !logged {
+            logged = true
+            LProLog.write("[entry] grew area \(baseH)->\(grown) settingsY \(settingsY)->\(settingsY + rowH) rowH=\(rowH)")
+        }
     }
 
     static func firstView(in view: UIView, idContains id: String) -> UIView? {
