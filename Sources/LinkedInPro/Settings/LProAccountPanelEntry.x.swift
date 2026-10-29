@@ -47,6 +47,7 @@ enum LProAccountEntry {
     private static var logged = false
     private static var appliedHeightKey: UInt8 = 0
     private static var appliedSettingsYKey: UInt8 = 1
+    private static var attemptsKey: UInt8 = 2
     private static var swizzledClasses: [ObjectIdentifier] = []
 
     static func apply(in root: UIView?) {
@@ -99,13 +100,23 @@ enum LProAccountEntry {
             area.addSubview(row)
         }
 
-        // Already applied and the parent has not reset it: only make sure our
-        // row is still on top.
+        // Already applied: change NOTHING. Re-asserting subview order or frames
+        // here dirties layout and re-enters this method - the 18:22 watchdog
+        // SIGKILL was exactly that (bringSubviewToFront on every pass).
         if let appliedH = objc_getAssociatedObject(area, &appliedHeightKey) as? CGFloat,
            let appliedY = objc_getAssociatedObject(area, &appliedSettingsYKey) as? CGFloat,
            abs(area.frame.height - appliedH) < 0.5,
            abs(settingsRow.frame.minY - appliedY) < 0.5 {
-            area.bringSubviewToFront(row)
+            return
+        }
+
+        // Bound the number of re-applications, in case LinkedIn resets the box
+        // on every pass: better an overlapping row than a layout loop.
+        let attempts = ((objc_getAssociatedObject(area, &attemptsKey) as? NSNumber)?.intValue ?? 0) + 1
+        objc_setAssociatedObject(area, &attemptsKey, NSNumber(value: attempts),
+                                 .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+        if attempts > 6 {
+            if attempts == 7 { LProLog.write("[entry] box keeps resetting; leaving the row as is") }
             return
         }
 
@@ -115,18 +126,22 @@ enum LProAccountEntry {
         let grown = baseH + rowH
 
         // Grow upward; the box is bottom-pinned in the panel.
-        area.frame = CGRect(x: area.frame.minX, y: area.frame.maxY - grown,
-                            width: area.frame.width, height: grown)
+        let newArea = CGRect(x: area.frame.minX, y: area.frame.maxY - grown,
+                             width: area.frame.width, height: grown)
+        if !area.frame.equalTo(newArea) { area.frame = newArea }
 
         // Move the Settings row and everything below it (the Premium strip) down
         // by one row. The divider (local y 0) stays at the top.
         for sub in area.subviews where sub !== row && sub.frame.minY >= settingsY - 0.5 {
-            sub.frame.origin.y += rowH
+            var f = sub.frame
+            f.origin.y += rowH
+            if !sub.frame.equalTo(f) { sub.frame = f }
         }
 
-        row.frame = CGRect(x: settingsRow.frame.minX, y: settingsY,
-                           width: settingsRow.frame.width, height: rowH)
-        area.bringSubviewToFront(row)
+        let newRow = CGRect(x: settingsRow.frame.minX, y: settingsY,
+                            width: settingsRow.frame.width, height: rowH)
+        if !row.frame.equalTo(newRow) { row.frame = newRow }
+        if area.subviews.last !== row { area.bringSubviewToFront(row) }
 
         objc_setAssociatedObject(area, &appliedHeightKey, grown, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
         objc_setAssociatedObject(area, &appliedSettingsYKey, settingsY + rowH,
