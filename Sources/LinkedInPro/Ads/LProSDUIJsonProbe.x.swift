@@ -30,25 +30,70 @@ enum SDUIPayloadProbe {
         let block: @convention(block) (AnyObject, NSData, UInt,
                                        UnsafeMutablePointer<NSError?>?) -> AnyObject? = { obj, data, opts, err in
             let result = orig(obj, sel, data, opts, err)
-            SDUIPayloadProbe.inspect(result)
+            SDUIPayloadProbe.inspect(result, bytes: data.count)
+            SDUIPayloadProbe.noteRawBytes(data)
             return result
         }
         method_setImplementation(method, imp_implementationWithBlock(block))
-        LProLog.write("[json] installed SDUI payload probe")
+        LProLog.write("[json] installed JSON probe (all parses sampled)")
     }
 
-    private static func inspect(_ object: Any?) {
-        guard logged < 4 else { return }
-        guard let dict = object as? [String: Any] else { return }
-        guard dict["rootComponent"] != nil || dict["components"] != nil || dict["componentKey"] != nil
-        else { return }
-        logged += 1
+    private static var rawHits = 0
 
-        let keys = dict.keys.sorted()
+    // Early signal that the feed JSON passes through here at all, independent of
+    // how it happens to be shaped after parsing.
+    static func noteRawBytes(_ data: NSData) {
+        guard rawHits < 5, data.length > 2048 else { return }
+        let needle = Data("componentKey".utf8)
+        if (data as Data).range(of: needle) != nil {
+            rawHits += 1
+            LProLog.write("[json] raw \(data.length)B contains componentKey")
+        }
+    }
+
+    private static func inspect(_ object: Any?, bytes: Int) {
+        guard logged < 25 else { return }
+
+        var sduiPath: [String] = []
+        if let dict = object as? [String: Any] {
+            findSDUIKeys(dict, path: "", into: &sduiPath, depth: 0)
+        }
+
+        // Log every large parse with its shape, so the feed payload can be
+        // recognised even if it is not shaped like an SDUI document.
+        if bytes >= 4096 || !sduiPath.isEmpty {
+            logged += 1
+            let kind = object.map { String(describing: type(of: $0)) } ?? "nil"
+            var detail = ""
+            if let dict = object as? [String: Any] {
+                detail = "keys=\(Array(dict.keys.prefix(18)))"
+            } else if let list = object as? [Any] {
+                detail = "array[\(list.count)]"
+            }
+            LProLog.write("[json] #\(logged) \(bytes)B \(kind) \(detail)")
+        }
+
+        guard !sduiPath.isEmpty else { return }
         var hits: [String] = []
-        scan(dict, path: "", into: &hits, depth: 0)
-        LProLog.write("[json] SDUI payload #\(logged) keys=\(keys.prefix(25))")
+        if let dict = object as? [String: Any] { scan(dict, path: "", into: &hits, depth: 0) }
+        LProLog.write("[json] SDUI keys at \(sduiPath.prefix(5))")
         LProLog.write("[json] flags: \(hits.prefix(40))")
+    }
+
+    private static func findSDUIKeys(_ any: Any, path: String, into out: inout [String], depth: Int) {
+        guard depth < 5, out.count < 5 else { return }
+        if let dict = any as? [String: Any] {
+            for (key, value) in dict {
+                if key == "rootComponent" || key == "componentKey" || key == "components" {
+                    out.append(path.isEmpty ? key : "\(path).\(key)")
+                }
+                findSDUIKeys(value, path: path.isEmpty ? key : "\(path).\(key)", into: &out, depth: depth + 1)
+            }
+        } else if let list = any as? [Any] {
+            for (i, value) in list.prefix(4).enumerated() {
+                findSDUIKeys(value, path: "\(path)[\(i)]", into: &out, depth: depth + 1)
+            }
+        }
     }
 
     // Collects "path = value" for keys that look like sponsored/promoted markers.
