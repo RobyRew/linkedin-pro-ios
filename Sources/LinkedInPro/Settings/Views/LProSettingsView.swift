@@ -5,7 +5,7 @@ import SwiftUI
 // iOS 26 Liquid Glass styling once the nav-bar feature flips LinkedIn's design
 // opt-out (Phase 3). Feature sections fill in per phase.
 struct LProSettingsView: View {
-    @State private var devKit = UserDefaults.standard.bool(forKey: LProSettingsKeys.devKit)
+    @State private var devKit = LProDevKit.isEnabled
 
     var body: some View {
         List {
@@ -37,12 +37,17 @@ struct LProSettingsView: View {
                     Label("DevKit console (Striker)", systemImage: "terminal")
                 }
                 .onChange(of: devKit) { _, newValue in
-                    UserDefaults.standard.set(newValue, forKey: LProSettingsKeys.devKit)
+                    LProDevKit.setEnabled(newValue)
+                }
+                LabeledContent("Status") {
+                    Text(devKit ? "Listening on 127.0.0.1:\(LProDevKit.port)" : "Off")
+                        .foregroundStyle(devKit ? .green : .secondary)
+                        .font(.footnote.monospaced())
                 }
             } header: {
                 Text("Developer")
             } footer: {
-                Text("Exposes the Striker introspection console over USB on relaunch. Leave off unless you are debugging.")
+                Text("The Striker introspection console, reachable over USB with `iproxy \(LProDevKit.port) \(LProDevKit.port)`. Starting/stopping here takes effect immediately.")
             }
 
             Section("Versions") {

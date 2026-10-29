@@ -31,8 +31,15 @@ struct LinkedInPro: Tweak {
 
         // Phase 2 - Feed: hook DashFeedUpdateBuilder.build:error: (VoyagerLibs) to drop
         // posts surfaced by a connection's reaction, filtered by reaction type.
+        // (Covers non-SDUI feed surfaces; the SDUI main feed is handled below.)
         HookRegistry.shared.activate(FeedFilterGroup(), named: "feed-filter",
                                      requiring: ["DashFeedUpdateBuilder"])
+        // SDUI feed: the main feed renders generic SDUI components, so the data
+        // hook above never sees its cards. This watches for the SDUI feed VC
+        // (a stable UIKit selector), then lazily installs the cell-level filter
+        // + DevKit instrumentation once the SDUI adapter class is registered.
+        HookRegistry.shared.activate(SDUIFeedActivatorGroup(), named: "sdui-feed-activator",
+                                     requiring: ["UIViewController"])
 
         // Later phases activate here, each guarded by HookRegistry.activate(...):
         //   Phase 3  NavBar  -> NavBarCustomizeGroup (+ GlassOptOut.apply())

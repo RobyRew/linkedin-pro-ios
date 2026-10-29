@@ -56,15 +56,31 @@ enum LProReaction: String, CaseIterable, Codable, Hashable {
 
 struct FeedFilterOptions: Codable, Equatable {
     // Hide posts surfaced only because a connection reacted (by reaction type).
+    // Opt-in (off): it removes real posts the user may want.
     var hideReactionSurfaced: Bool = false
     var reactions: Set<LProReaction> = Set(LProReaction.allCases)
 
-    // Hide "Promoted"/sponsored posts (ads).
-    var hideSponsored: Bool = false
-    // Hide LinkedIn's suggestion/recommendation promo cards (not real posts).
-    var hidePromotions: Bool = false
-    // Hide premium upsell cards in the feed AND the premium upsell buttons in the UI.
-    var hidePremiumUpsell: Bool = false
+    // The three clean-up options ship ON: they only remove ads / promo / upsell
+    // chrome, which is the point of the tweak. A user can turn each off.
+    var hideSponsored: Bool = true     // "Promoted" ads
+    var hidePromotions: Bool = true    // suggestion / recommendation promo cards
+    var hidePremiumUpsell: Bool = true // premium upsell cards + the UI upsell buttons
+
+    // Decode missing keys to their declared defaults, so a blob written by an
+    // earlier build (which had no clean-up keys, or had them defaulting off)
+    // reads back with the clean-up options ON rather than nil-crashing or
+    // silently off. Only an explicitly-stored false turns an option off.
+    init() {}
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        let d = FeedFilterOptions()
+        hideReactionSurfaced = try c.decodeIfPresent(Bool.self, forKey: .hideReactionSurfaced) ?? d.hideReactionSurfaced
+        reactions = try c.decodeIfPresent(Set<LProReaction>.self, forKey: .reactions) ?? d.reactions
+        hideSponsored = try c.decodeIfPresent(Bool.self, forKey: .hideSponsored) ?? d.hideSponsored
+        hidePromotions = try c.decodeIfPresent(Bool.self, forKey: .hidePromotions) ?? d.hidePromotions
+        hidePremiumUpsell = try c.decodeIfPresent(Bool.self, forKey: .hidePremiumUpsell) ?? d.hidePremiumUpsell
+    }
 }
 
 extension UserDefaults {
