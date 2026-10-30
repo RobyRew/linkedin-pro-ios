@@ -4,11 +4,20 @@ import UIKit
 import Foundation
 import ObjectiveC.runtime
 
+// True only once the first main-queue turn has run. Hooks that can be consulted
+// during dyld image loading must check it before reading UserDefaults: the
+// NSUserDefaults singleton is still initialising then, and a read from inside
+// that initialisation aborts the process with a recursive unfair-lock failure.
+enum LProLaunch {
+    static var ready = false
+}
+
 // Entry point. Orion instantiates this after orion_init() (see LinkedInProC/Tweak.m).
 // init() runs on the app's main thread at launch, before most of LinkedIn's UI.
 struct LinkedInPro: Tweak {
     init() {
         LProLog.boot()
+        DispatchQueue.main.async { LProLaunch.ready = true }
         HookRegistry.shared.logTargetInventory()
         LProDevKit.startIfEnabled()
         if LProDevKit.isEnabled {
