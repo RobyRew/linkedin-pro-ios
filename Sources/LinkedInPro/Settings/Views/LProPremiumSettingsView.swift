@@ -40,7 +40,7 @@ struct LProPremiumSettingsView: View {
         .navigationTitle("Premium")
         .onChange(of: options) { _, newValue in
             UserDefaults.lproPremium = newValue
-            PremiumPOC.sync(newValue)
+            PremiumEnabler.sync(newValue)
         }
     }
 

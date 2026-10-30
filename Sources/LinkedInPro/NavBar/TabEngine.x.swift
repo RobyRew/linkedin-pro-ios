@@ -25,6 +25,18 @@ class TabEngineAppearHook: ClassHook<UITabBarController> {
     }
 }
 
+// Earlier than viewDidAppear, in case the bar's own gesture recognizers are in
+// place by then. Idempotent with the appear hook.
+class TabEngineDidLoadHook: ClassHook<UITabBarController> {
+    typealias Group = TabEngineGroup
+    static let targetName = "LINMainNavViewController"
+
+    func viewDidLoad() {
+        orig.viewDidLoad()
+        TabEngine.attach(target)
+    }
+}
+
 // Captures the VC factory (its -makeViewControllerForTabType: is what builds a
 // tab's controller) so an added tab can be created at runtime.
 class TabVCFactoryHook: ClassHook<NSObject> {
@@ -70,11 +82,18 @@ enum TabEngine {
         longPressInstalled = true
         let gesture = UILongPressGestureRecognizer(target: LProTabLongPress.shared,
                                                    action: #selector(LProTabLongPress.handle(_:)))
-        gesture.minimumPressDuration = 0.55
+        gesture.minimumPressDuration = 0.5
+        gesture.allowableMovement = 12
         gesture.cancelsTouchesInView = false
+        // Let it run alongside the bar's own recognizers instead of losing the
+        // race to the tab-select gesture.
+        gesture.delegate = LProTabLongPress.shared
         bar.addGestureRecognizer(gesture)
-        LProLog.write("[navbar] long-press installed on the tab bar")
+        LProLog.write("[navbar] long-press installed on \(NSStringFromClass(type(of: bar)))")
     }
+
+    // UIKit shows at most five items; anything beyond goes to the More list.
+    static let maxVisibleTabs = 5
 
     // MARK: - default launch tab
 
@@ -185,21 +204,37 @@ enum TabEngine {
 }
 
 // Opens the tweak settings when the FIRST bar item is long-pressed. Works with
-// both the classic UITabBarButton and iOS 26's floating _UITabButton.
-final class LProTabLongPress: NSObject {
+// both the classic UITabBarButton and iOS 26's floating _UITabButton; it also
+// accepts a press inside the left-most item's frame, because the floating bar
+// nests its buttons several levels deep and a hit test may land on an inner
+// label that is not itself a button.
+final class LProTabLongPress: NSObject, UIGestureRecognizerDelegate {
     static let shared = LProTabLongPress()
+
+    func gestureRecognizer(_ gesture: UIGestureRecognizer,
+                           shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool {
+        true
+    }
 
     @objc func handle(_ gesture: UILongPressGestureRecognizer) {
         guard gesture.state == .began, UserDefaults.lproTabBar.longPressEntry,
               let bar = gesture.view else { return }
+
         let point = gesture.location(in: bar)
-        guard let hit = bar.hitTest(point, with: nil),
-              let button = tabButton(containing: hit, in: bar) else { return }
+        let hit = bar.hitTest(point, with: nil)
         let buttons = tabButtons(in: bar).sorted {
             $0.convert($0.bounds, to: bar).minX < $1.convert($1.bounds, to: bar).minX
         }
-        guard buttons.first === button else { return }
-        LProLog.write("[navbar] long press on the first tab -> settings")
+        let hitButton = hit.flatMap { tabButton(containing: $0, in: bar) }
+        let firstFrame = buttons.first.map { $0.convert($0.bounds, to: bar) }
+        let onFirst = (hitButton != nil && hitButton === buttons.first)
+            || (firstFrame?.insetBy(dx: -8, dy: -8).contains(point) ?? false)
+
+        LProLog.write("[navbar] long press at \(Int(point.x)),\(Int(point.y)) "
+                      + "hit=\(hit.map { NSStringFromClass(type(of: $0)) } ?? "nil") "
+                      + "buttons=\(buttons.count) first=\(onFirst)")
+
+        guard onFirst else { return }
         LProSettingsOpener.shared.open()
     }
 

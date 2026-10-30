@@ -3,7 +3,7 @@ import Foundation
 // Entries shown in the Premium settings panel. Names mirror the premium surface
 // documented in PREMIUM-SURFACE.md / PREMIUM-ANALYSIS.md; the `id` values are
 // stable so stored flags survive catalog changes. Each entry is a stored flag
-// only - see PremiumOptions and PremiumPOC.
+// only - see PremiumOptions and PremiumEnabler.
 enum PremiumFeatureCatalog {
     struct Item {
         let id: String

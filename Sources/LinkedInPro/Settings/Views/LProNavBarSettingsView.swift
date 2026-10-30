@@ -47,6 +47,14 @@ struct LProNavBarSettingsView: View {
             }
 
             Section {
+                Toggle("Force iOS 26/27 Liquid Glass design", isOn: $options.iOS26GlassTabs)
+            } header: {
+                Text("Liquid Glass")
+            } footer: {
+                Text("Flips LinkedIn's UIDesignRequiresCompatibility opt-out for the app bundle. On iOS 27 the system already renders the floating glass tab bar regardless of that key (the live tree shows _UITabBarVisualProvider_Floating), so this affects the rest of the design language rather than the bar. Read at launch - relaunch after changing it.")
+            }
+
+            Section {
                 if activeTabs.isEmpty {
                     Text("Open LinkedIn once so its tabs can be listed here.")
                         .font(.footnote).foregroundStyle(.secondary)
@@ -60,7 +68,7 @@ struct LProNavBarSettingsView: View {
             } header: {
                 Text("Tab bar (\(activeTabs.count)/\(maxTabs))")
             } footer: {
-                Text("Drag the three lines to reorder. Swipe a row to remove it from the bar - it moves to Available tabs. At least one tab is always kept.")
+                Text("Drag the three lines to reorder. Swipe a row to remove it from the bar - it moves to Available tabs. At least one tab is always kept. iOS shows at most five items on a tab bar; anything beyond that is moved into the More list by UIKit.")
             }
             .environment(\.editMode, .constant(.active))
 
@@ -131,7 +139,7 @@ struct LProNavBarSettingsView: View {
         }
     }
 
-    private let maxTabs = 8
+    private let maxTabs = TabEngine.maxVisibleTabs
 
     @ViewBuilder
     private func activeRow(_ name: String) -> some View {
