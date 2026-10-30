@@ -56,12 +56,49 @@ enum TabEngine {
 
     private static var longPressInstalled = false
     private static var didApplyDefault = false
+    private static var didLogDiagnostics = false
 
     static func attach(_ tbc: UITabBarController) {
         tabBarController = tbc
         installLongPress(on: tbc)
         applyAppearance()
         applyDefaultTabIfNeeded()
+        logDiagnosticsOnce(tbc)
+    }
+
+    // Self-validation: on the first attach, log which tab API this OS/build exposes,
+    // how many tabs it sees, their resolved names, and which apply() path that
+    // selects - so the engine's live decode can be read straight from the launch
+    // log (Striker: `logtail`) with nothing reordered. Records what was observed,
+    // not that it "works".
+    private static func logDiagnosticsOnce(_ tbc: UITabBarController) {
+        guard !didLogDiagnostics else { return }
+        didLogDiagnostics = true
+        let opt = UserDefaults.lproTabBar
+        let discovered = opt.discoveredTabs
+
+        var modernCount = 0
+        var modernNames: [String] = []
+        if #available(iOS 18.0, *) {
+            modernCount = tbc.tabs.count
+            modernNames = tbc.tabs.map {
+                resolvedName(title: $0.title, viewController: $0.viewController,
+                             identifier: $0.identifier, discovered: discovered)
+            }
+        }
+        let vcNames = (tbc.viewControllers ?? []).map {
+            resolvedName(title: $0.tabBarItem.title, viewController: $0,
+                         identifier: nil, discovered: discovered)
+        }
+
+        let usesModern: Bool
+        if #available(iOS 18.0, *) { usesModern = opt.extraTabs.isEmpty && modernCount > 0 }
+        else { usesModern = false }
+        let path = usesModern ? "modern UITab" : "viewControllers"
+
+        LProLog.write("[navbar] tab-engine diagnostic: apply-path=\(path) "
+                      + "modernTabs=\(modernCount)\(modernNames.isEmpty ? "" : " \(modernNames)") "
+                      + "vcTabs=\(vcNames.count) \(vcNames)")
     }
 
     // Dark bar only: overrides the appearance of the tab bar view, not the app.
