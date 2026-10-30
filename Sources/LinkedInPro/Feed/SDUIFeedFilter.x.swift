@@ -266,8 +266,11 @@ enum SDUIFeedFilter {
         for marker in header {
             let t = marker.text.lowercased()
             guard t.count < 90 else { continue }
-            if t.contains("commented on this") || t.contains("commented on a post")
-                || t.contains("replied to this") { return true }
+            // LinkedIn uses several forms ("X commented on this", "X and 3 others
+            // commented on this", "X commented on a post", "X replied to this"),
+            // so any comment word in the header band counts.
+            if t.contains("commented") || t.contains("replied to")
+                || t.contains("replied") { return true }
         }
         return false
     }

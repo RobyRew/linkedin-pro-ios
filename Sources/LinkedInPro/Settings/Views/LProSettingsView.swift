@@ -4,6 +4,23 @@ import SwiftUI
 // onto LinkedIn's own navigation stack. Plain native SwiftUI; it picks up the
 // iOS 26 Liquid Glass styling once the nav-bar feature flips LinkedIn's design
 // opt-out (Phase 3). Feature sections fill in per phase.
+// Liquid Glass card on iOS 26+, a plain rounded card below it. Keeps the tweak
+// settings looking current even though LinkedIn's bundle opts out of the design
+// system.
+private struct LProGlassCard: ViewModifier {
+    func body(content: Content) -> some View {
+        if #available(iOS 26.0, *) {
+            content.glassEffect(.regular, in: .rect(cornerRadius: 18))
+        } else {
+            content
+                .background(
+                    RoundedRectangle(cornerRadius: 18, style: .continuous)
+                        .fill(Color(uiColor: .secondarySystemBackground))
+                )
+        }
+    }
+}
+
 struct LProSettingsView: View {
     var body: some View {
         List {
@@ -17,7 +34,8 @@ struct LProSettingsView: View {
                         Text("Customization for LinkedIn").font(.subheadline).foregroundStyle(.secondary)
                     }
                 }
-                .padding(.vertical, 4)
+                .padding(14)
+                .modifier(LProGlassCard())
             }
 
             Section("Features") {

@@ -37,6 +37,18 @@ class TabEngineDidLoadHook: ClassHook<UITabBarController> {
     }
 }
 
+// LinkedIn sets its controller list itself (launch, and whenever it refreshes
+// the tabs). Re-assert the user's arrangement after each of those.
+class MainNavSetViewControllersHook: ClassHook<UITabBarController> {
+    typealias Group = TabEngineGroup
+    static let targetName = "LINMainNavViewController"
+
+    func setViewControllers(_ viewControllers: [UIViewController]?, animated: Bool) {
+        orig.setViewControllers(viewControllers, animated: animated)
+        TabEngine.reapplyAfterLinkedInUpdate()
+    }
+}
+
 // Captures the VC factory (its -makeViewControllerForTabType: is what builds a
 // tab's controller) so an added tab can be created at runtime.
 class TabVCFactoryHook: ClassHook<NSObject> {
@@ -161,11 +173,22 @@ enum TabEngine {
             return false
         }
         let opt = UserDefaults.lproTabBar
-
-        if #available(iOS 18.0, *), opt.extraTabs.isEmpty, !tbc.tabs.isEmpty {
-            return applyModern(tbc, opt)
-        }
+        // Always rebuild through -setViewControllers:. The modern `tabs` setter
+        // (iOS 18) does not reach the floating Liquid Glass bar, which keeps
+        // rendering from LinkedIn's own controller list - with that bar the
+        // arranged/hidden result never appeared. -setViewControllers: is what
+        // LINMainNavViewController overrides and what the bar reads.
         return applyLegacy(tbc, opt)
+    }
+
+    private static var isApplying = false
+
+    // LinkedIn rebuilds its own controller list on launch and on tab changes.
+    // After it does, re-assert the user's arrangement unless this call came from
+    // apply() itself.
+    static func reapplyAfterLinkedInUpdate() {
+        guard !isApplying else { return }
+        _ = apply()
     }
 
     // iOS 18+: reorder / hide the existing UITab objects in place. Reusing the same
@@ -232,7 +255,9 @@ enum TabEngine {
         if target.count == current.count, zip(target, current).allSatisfy({ $0.0 === $0.1 }) {
             return false  // already matches
         }
+        isApplying = true
         tbc.setViewControllers(target, animated: false)
+        isApplying = false
         if selected < target.count { tbc.selectedIndex = selected }
         LProLog.write("[navbar] applied (viewControllers): \(visible.map { $0.name })")
         return true

@@ -17,7 +17,14 @@ enum LProLaunch {
 struct LinkedInPro: Tweak {
     init() {
         LProLog.boot()
-        DispatchQueue.main.async { LProLaunch.ready = true }
+        DispatchQueue.main.async {
+            LProLaunch.ready = true
+            let f = UserDefaults.lproFeedFilter
+            LProLog.write("[boot] flags sponsored=\(f.hideSponsored) promotions=\(f.hidePromotions) "
+                          + "premium=\(f.hidePremiumUpsell) reaction=\(f.hideReactionSurfaced) "
+                          + "comment=\(f.hideCommentSurfaced) repost=\(f.hideRepostSurfaced) "
+                          + "reactions=\(f.reactions.map { $0.rawValue })")
+        }
         HookRegistry.shared.logTargetInventory()
         LProDevKit.startIfEnabled()
         if LProDevKit.isEnabled {
