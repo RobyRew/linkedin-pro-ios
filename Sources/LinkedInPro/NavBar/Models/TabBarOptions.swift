@@ -6,7 +6,10 @@ struct TabBarOptions: Codable, Equatable {
     var hideLabels: Bool = false
     // Opt LinkedIn back INTO the iOS 26 design system so the bottom bar renders
     // as the floating Liquid Glass "island". App-wide design change, experimental.
-    var iOS26GlassTabs: Bool = false
+    // Defaults on: the sideload build bakes the opt-out clear into Info.plist, and
+    // the jailbreak build flips it from this flag; keeping the stored flag on so
+    // the two agree and the marker sync writes it.
+    var iOS26GlassTabs: Bool = true
     // User tab order, by tabName; empty = LinkedIn's natural order. Names not
     // listed keep their natural relative order after the listed ones.
     var order: [String] = []

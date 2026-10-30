@@ -12,7 +12,9 @@ struct LProPremiumSettingsView: View {
     var body: some View {
         List {
             Section {
-                Toggle("Spoof Premium (client flags)", isOn: $options.spoofPremium)
+                Toggle(isOn: $options.spoofPremium) {
+                    Label("Spoof Premium (client flags)", systemImage: "crown.fill")
+                }
             } header: {
                 Text("Client spoof")
             } footer: {
@@ -20,7 +22,9 @@ struct LProPremiumSettingsView: View {
             }
 
             Section {
-                Toggle("All features", isOn: masterBinding)
+                Toggle(isOn: masterBinding) {
+                    Label("All features", systemImage: "square.stack.3d.up")
+                }
                 LabeledContent("Enabled", value: "\(options.enabledCount)/\(options.featureCount)")
             } footer: {
                 Text("Switches every flag below on or off together. Each can still be changed on its own inside its group.")

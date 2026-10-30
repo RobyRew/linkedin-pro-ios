@@ -37,9 +37,15 @@ struct LProNavBarSettingsView: View {
     var body: some View {
         List {
             Section {
-                Toggle("Hide tab labels", isOn: $options.hideLabels)
-                Toggle("Dark tab bar only", isOn: $options.darkTabBar)
-                Toggle("Long-press first tab opens settings", isOn: $options.longPressEntry)
+                Toggle(isOn: $options.hideLabels) {
+                    Label("Hide tab labels", systemImage: "textformat.size")
+                }
+                Toggle(isOn: $options.darkTabBar) {
+                    Label("Dark tab bar only", systemImage: "moon.fill")
+                }
+                Toggle(isOn: $options.longPressEntry) {
+                    Label("Long-press first tab opens settings", systemImage: "hand.tap")
+                }
             } header: {
                 Text("Bottom bar")
             } footer: {
@@ -47,11 +53,13 @@ struct LProNavBarSettingsView: View {
             }
 
             Section {
-                Toggle("Force iOS 26/27 Liquid Glass design", isOn: $options.iOS26GlassTabs)
+                Toggle(isOn: $options.iOS26GlassTabs) {
+                    Label("Force iOS 26/27 Liquid Glass design", systemImage: "sparkles")
+                }
             } header: {
                 Text("Liquid Glass")
             } footer: {
-                Text("Flips LinkedIn's UIDesignRequiresCompatibility opt-out for the app bundle. On iOS 27 the system already renders the floating glass tab bar regardless of that key (the live tree shows _UITabBarVisualProvider_Floating), so this affects the rest of the design language rather than the bar. Read at launch - relaunch after changing it.")
+                Text("Opts the app into the iOS 26 design system (clears UIDesignRequiresCompatibility) so UIKit renders the floating Liquid Glass tab bar. The sideload build bakes this into Info.plist, so it is on regardless of this toggle; a jailbreak build is driven by the toggle, read at launch \u{2014} relaunch after changing it. App-wide and experimental.")
             }
 
             Section {

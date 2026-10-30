@@ -9,9 +9,15 @@ struct LProFeedSettingsView: View {
     var body: some View {
         List {
             Section {
-                Toggle("Hide reaction-surfaced posts", isOn: $options.hideReactionSurfaced)
-                Toggle("Hide comment-surfaced posts", isOn: $options.hideCommentSurfaced)
-                Toggle("Hide reposted posts", isOn: $options.hideRepostSurfaced)
+                Toggle(isOn: $options.hideReactionSurfaced) {
+                    Label("Hide reaction-surfaced posts", systemImage: "hand.thumbsup")
+                }
+                Toggle(isOn: $options.hideCommentSurfaced) {
+                    Label("Hide comment-surfaced posts", systemImage: "text.bubble")
+                }
+                Toggle(isOn: $options.hideRepostSurfaced) {
+                    Label("Hide reposted posts", systemImage: "arrow.2.squarepath")
+                }
             } header: {
                 Text("Surfaced by your network")
             } footer: {

@@ -9,9 +9,15 @@ struct LProAdsSettingsView: View {
     var body: some View {
         List {
             Section {
-                Toggle("Hide sponsored posts (Promoted)", isOn: $options.hideSponsored)
-                Toggle("Hide promotions & suggestions", isOn: $options.hidePromotions)
-                Toggle("Hide Premium upselling", isOn: $options.hidePremiumUpsell)
+                Toggle(isOn: $options.hideSponsored) {
+                    Label("Hide sponsored posts (Promoted)", systemImage: "megaphone")
+                }
+                Toggle(isOn: $options.hidePromotions) {
+                    Label("Hide promotions & suggestions", systemImage: "sparkles.rectangle.stack")
+                }
+                Toggle(isOn: $options.hidePremiumUpsell) {
+                    Label("Hide Premium upselling", systemImage: "crown")
+                }
             } header: {
                 Text("Ads & sponsored")
             } footer: {
