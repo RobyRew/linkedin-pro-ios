@@ -68,6 +68,30 @@ a `LINTabBarBadgePlacementView` (badge), a `UITabBarSwappableImageView` (icon) a
 a `UITabBarButtonLabel` (title). The Me tab is a separate
 `LINMainNavMeButtonV2` (32×32) in the top bar, not one of the five.
 
+### Tab-bar API — static validation (main binary, build 9.32.5021)
+
+Counts of the tab-ordering selectors in the decrypted main executable
+(`strings`), to decide which API the TabEngine must drive:
+
+```
+setViewControllers:                    6   (legacy UITabBarController API)
+mainNavTabsOrder                       2
+sanitizedTabControllerViewControllers: 1
+setTabs:                               0   (modern iOS 18 UITab API)
+UITab                                  0
+tabForIdentifier                       0
+customizationIdentifiers               0
+```
+
+So LinkedIn configures the bar through the legacy `viewControllers` API and does
+not use the iOS 18 `UITab` API at all. On iOS 18+, assigning `viewControllers`
+auto-populates `UITabBarController.tabs` with derived `UITab`s, so TabEngine's
+`#available(iOS 18) && !tbc.tabs.isEmpty` branch reorders those in place
+(identity-preserving); where `tabs` is empty it falls back to `setViewControllers`.
+Both branches resolve a tab's name via title → identifier → VC class, so neither
+drops a tab when icon-only mode blanks the title. The branch taken is logged at
+runtime: `[navbar] applied (modern UITab)` vs `(viewControllers)`.
+
 ## Feed (SDUI)
 
 Main feed: `VoyagerFeed.FeedSDUIViewController` → child
