@@ -79,6 +79,10 @@ struct LProNavBarSettingsView: View {
                         Text(pretty(name)).tag(name)
                     }
                 }
+                // .menu works without a SwiftUI NavigationStack; the default
+                // .navigationLink style would need one (this screen is pushed as a
+                // bare UIHostingController on a UIKit nav).
+                .pickerStyle(.menu)
             } header: {
                 Text("Launch")
             } footer: {
@@ -227,6 +231,9 @@ struct LProNavBarSettingsView: View {
 
     private func persist() {
         UserDefaults.lproTabBar = options
+        // Write the Liquid Glass marker now so the next launch's early dyld-load
+        // read picks it up (the design system is configured before any run loop).
+        LProGlassFlag.set(options.iOS26GlassTabs)
         TabEngine.applyAppearance()
         _ = TabEngine.apply()
     }

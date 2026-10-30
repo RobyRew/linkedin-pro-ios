@@ -2,13 +2,14 @@ import Foundation
 
 // Applies a change from the Premium feature panel.
 //
-// Most of the panel's flags are read live by the spoof hooks (PremiumSpoof reads
-// UserDefaults.lproPremium on every call via LProPremiumState.flag), so no push
-// is needed for those - they take effect on the next check. The one flag with an
-// immediate on-screen effect is "Hide upgrade prompts": re-run the shared view
-// sweep so upsells already on screen are hidden (or restored) right away.
+// The spoof hooks read the panel's flags through LProPremiumState's cached
+// options, so a change must invalidate that cache to take effect; they then apply
+// on the next check. The one flag with an immediate on-screen effect is "Hide
+// upgrade prompts": re-run the shared view sweep so upsells already on screen are
+// hidden (or restored) right away.
 enum PremiumEnabler {
     static func sync(_ options: PremiumOptions) {
+        LProPremiumState.invalidate()
         LProViewSweeper.schedule()
 
         let clientOn = PremiumFeatureCatalog.groups

@@ -24,6 +24,10 @@ struct LinkedInPro: Tweak {
                           + "premium=\(f.hidePremiumUpsell) reaction=\(f.hideReactionSurfaced) "
                           + "comment=\(f.hideCommentSurfaced) repost=\(f.hideRepostSurfaced) "
                           + "reactions=\(f.reactions.map { $0.rawValue })")
+            // Keep the early-read Liquid Glass marker in step with the stored
+            // preference; the BundleInfoHook reads the marker at next dyld load.
+            LProGlassFlag.set(UserDefaults.lproTabBar.iOS26GlassTabs)
+            LProLog.write("[glass] marker synced to iOS26GlassTabs=\(UserDefaults.lproTabBar.iOS26GlassTabs)")
         }
         HookRegistry.shared.logTargetInventory()
         LProDevKit.startIfEnabled()

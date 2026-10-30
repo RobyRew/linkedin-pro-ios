@@ -114,13 +114,13 @@ class BundleInfoHook: ClassHook<Bundle> {
     typealias Group = GlassTabsGroup
     private static let key = "UIDesignRequiresCompatibility"
 
-    // Both accessors are called from inside dyld image loading (Orion asks the
-    // main bundle for its info dictionary while installing hooks). Reading
-    // UserDefaults there re-enters NSUserDefaults' own initialisation and aborts
-    // the process, so the flag is only read once the first run loop has turned.
+    // Both accessors are called from inside dyld image loading, where UIKit reads
+    // UIDesignRequiresCompatibility to configure the design system - so the flip
+    // has to happen HERE to take effect. The preference is read from a marker file
+    // (LProGlassFlag), a bare stat() that is safe this early; reading UserDefaults
+    // here instead re-enters its own initialisation and aborts the launch.
     func object(forInfoDictionaryKey key: String) -> Any? {
-        if key == Self.key, target === Bundle.main, LProLaunch.ready,
-           UserDefaults.lproTabBar.iOS26GlassTabs {
+        if key == Self.key, target === Bundle.main, LProGlassFlag.isOn {
             return false
         }
         return orig.object(forInfoDictionaryKey: key)
@@ -128,8 +128,7 @@ class BundleInfoHook: ClassHook<Bundle> {
 
     func infoDictionary() -> NSDictionary? {
         let dict = orig.infoDictionary()
-        guard target === Bundle.main, LProLaunch.ready,
-              UserDefaults.lproTabBar.iOS26GlassTabs, let dict = dict else {
+        guard target === Bundle.main, LProGlassFlag.isOn, let dict = dict else {
             return dict
         }
         let mutable = NSMutableDictionary(dictionary: dict)

@@ -39,10 +39,14 @@ enum PremiumFeatureCatalog {
         let items: [Item]
     }
 
-    // Flags wired to a precise client-side hook (PremiumSpoof / the upsell sweep /
-    // the interstitial skip). Everything else is entry/UI-reveal only.
+    // Flags wired to a precise client-side effect: the membership cosmetics and
+    // the two suppressors (PremiumSpoof leaf gates / the upsell sweep / the
+    // interstitial skip), plus the profile-editor features that the feature-aware
+    // DashFeatureAccess gate unlocks for local use. Everything else is entry/UI
+    // reveal only (its data is served by LinkedIn).
     static let clientSideIDs: Set<String> = [
         "badge", "bar", "logo", "subscriber_flag", "upsells", "interstitials",
+        "spotlight", "featured", "profile_custom_cta", "profile_top_card_form", "unlimited_invite",
     ]
 
     static func isClientSide(_ id: String) -> Bool { clientSideIDs.contains(id) }
@@ -58,14 +62,17 @@ enum PremiumFeatureCatalog {
             Item(id: "interstitials", title: "Skip feature interstitials", symbol: "rectangle.on.rectangle.slash", effect: .clientSide),
         ]),
         Group(title: "Profile & network", symbol: "person.crop.circle", items: [
+            // The viewer LIST is server data; the gate only reveals the section.
             Item(id: "wvmp", title: "Who viewed your profile", symbol: "eye"),
             Item(id: "wvmp_365", title: "365-day profile viewers", symbol: "calendar"),
-            Item(id: "spotlight", title: "Profile spotlight", symbol: "sparkles"),
-            Item(id: "featured", title: "Featured section", symbol: "square.grid.2x2"),
-            Item(id: "profile_custom_cta", title: "Custom profile button", symbol: "cursorarrow.click"),
-            Item(id: "profile_top_card_form", title: "Top-card premium settings", symbol: "rectangle.topthird.inset.filled"),
+            // Profile-editor features: unlocking the client gate makes them usable
+            // (they save through the normal profile APIs), so they take effect locally.
+            Item(id: "spotlight", title: "Profile spotlight", symbol: "sparkles", effect: .clientSide),
+            Item(id: "featured", title: "Featured section", symbol: "square.grid.2x2", effect: .clientSide),
+            Item(id: "profile_custom_cta", title: "Custom profile button", symbol: "cursorarrow.click", effect: .clientSide),
+            Item(id: "profile_top_card_form", title: "Top-card premium settings", symbol: "rectangle.topthird.inset.filled", effect: .clientSide),
+            Item(id: "unlimited_invite", title: "Custom invitation notes", symbol: "person.badge.plus", effect: .clientSide),
             Item(id: "profile_storefront", title: "Profile storefront", symbol: "storefront"),
-            Item(id: "unlimited_invite", title: "Unlimited custom invites", symbol: "person.badge.plus"),
         ]),
         Group(title: "InMail & messaging", symbol: "envelope", items: [
             Item(id: "inmail_credits", title: "InMail credits", symbol: "envelope.badge"),

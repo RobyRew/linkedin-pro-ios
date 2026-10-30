@@ -10,7 +10,16 @@ final class LProSettingsViewController: UIViewController {
         title = "LinkedIn Professional"
         view.backgroundColor = .systemBackground
 
-        let host = UIHostingController(rootView: LProSettingsView())
+        // SwiftUI NavigationLink needs a SwiftUI NavigationStack, which this flow
+        // has not got (the view is shown on a UIKit nav controller). So the feature
+        // rows push their sub-screen through this closure onto the same UIKit nav -
+        // one native bar, native back, from either the pushed or modal entry path.
+        let host = UIHostingController(rootView: LProSettingsView(push: { [weak self] view, title in
+            guard let self, let nav = self.navigationController else { return }
+            let sub = UIHostingController(rootView: view)
+            sub.title = title
+            nav.pushViewController(sub, animated: true)
+        }))
         addChild(host)
         host.view.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(host.view)
