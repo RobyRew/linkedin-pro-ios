@@ -228,10 +228,20 @@ enum TabEngine {
         }
         let selected = tbc.selectedIndex
 
-        var named: [(name: String, value: UIViewController)] = current.map { vc in
-            (name: resolvedName(title: vc.tabBarItem.title, viewController: vc,
-                                identifier: nil, discovered: opt.discoveredTabs),
-             value: vc)
+        // Positional names: LinkedIn's natural order is what mainNavTabsOrder
+        // published as `discoveredTabs`, so when a tab cannot be named from its
+        // title, identifier or class (icon-only mode blanks the title, and the
+        // experiment wrapper VCs carry no recognisable class), the same index in
+        // that list is the correct name. Without this a wrapper tab surfaced as
+        // "LINNavigationController" and never matched order / hidden.
+        let positional = opt.discoveredTabs.count == current.count ? opt.discoveredTabs : []
+        var named: [(name: String, value: UIViewController)] = current.enumerated().map { index, vc in
+            var name = resolvedName(title: vc.tabBarItem.title, viewController: vc,
+                                    identifier: nil, discovered: opt.discoveredTabs)
+            if name == NSStringFromClass(type(of: vc)), index < positional.count {
+                name = positional[index]
+            }
+            return (name: name, value: vc)
         }
 
         // Extras that were never built in this run: build them now.
