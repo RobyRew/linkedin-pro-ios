@@ -67,6 +67,16 @@ struct FeedFilterOptions: Codable, Equatable {
     // Hide reposts ("X reposted this"). Opt-in: a repost is a deliberate share,
     // not just a like, so it is a separate choice.
     var hideRepostSurfaced: Bool = false
+    // Hide posts surfaced because a connection follows the author ("Followed by
+    // X"). Opt-in.
+    var hideFollowedBy: Bool = false
+    // Hide posts from people outside your network - a 2nd/3rd-degree author you
+    // are not connected to, shown by the algorithm. Opt-in and aggressive: it
+    // keys off the degree chip in the card header.
+    var hideOutOfNetwork: Bool = false
+    // Hide company / Page posts (a company actor in the card header). Opt-in: it
+    // also hides posts from companies you deliberately follow.
+    var hideCompanyPosts: Bool = false
 
     // The three clean-up options ship ON: they only remove ads / promo / upsell
     // chrome, which is the point of the tweak. A user can turn each off.
@@ -87,6 +97,9 @@ struct FeedFilterOptions: Codable, Equatable {
         reactions = try c.decodeIfPresent(Set<LProReaction>.self, forKey: .reactions) ?? d.reactions
         hideCommentSurfaced = try c.decodeIfPresent(Bool.self, forKey: .hideCommentSurfaced) ?? d.hideCommentSurfaced
         hideRepostSurfaced = try c.decodeIfPresent(Bool.self, forKey: .hideRepostSurfaced) ?? d.hideRepostSurfaced
+        hideFollowedBy = try c.decodeIfPresent(Bool.self, forKey: .hideFollowedBy) ?? d.hideFollowedBy
+        hideOutOfNetwork = try c.decodeIfPresent(Bool.self, forKey: .hideOutOfNetwork) ?? d.hideOutOfNetwork
+        hideCompanyPosts = try c.decodeIfPresent(Bool.self, forKey: .hideCompanyPosts) ?? d.hideCompanyPosts
         hideSponsored = try c.decodeIfPresent(Bool.self, forKey: .hideSponsored) ?? d.hideSponsored
         hidePromotions = try c.decodeIfPresent(Bool.self, forKey: .hidePromotions) ?? d.hidePromotions
         hidePremiumUpsell = try c.decodeIfPresent(Bool.self, forKey: .hidePremiumUpsell) ?? d.hidePremiumUpsell

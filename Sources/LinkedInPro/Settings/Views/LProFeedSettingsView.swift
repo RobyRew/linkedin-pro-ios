@@ -35,6 +35,22 @@ struct LProFeedSettingsView: View {
             }
 
             Section {
+                Toggle(isOn: $options.hideFollowedBy) {
+                    Label("Hide \u{201C}Followed by \u{2026}\u{201D} posts", systemImage: "person.badge.plus")
+                }
+                Toggle(isOn: $options.hideOutOfNetwork) {
+                    Label("Hide out-of-network people", systemImage: "person.crop.circle.badge.xmark")
+                }
+                Toggle(isOn: $options.hideCompanyPosts) {
+                    Label("Hide company & Page posts", systemImage: "building.2")
+                }
+            } header: {
+                Text("Recommended & out of network")
+            } footer: {
+                Text("Hides posts the algorithm injects from outside your connections: \u{201C}Followed by \u{2026}\u{201D} social proof, authors shown with a 2nd/3rd-degree badge, and company / Page posts (that last one also hides companies you follow). Detection reads the card header, so a recommended card with no stated reason can still slip through.")
+            }
+
+            Section {
                 if stats.isEmpty {
                     Text("No cards hidden yet this session.")
                         .font(.footnote).foregroundStyle(.secondary)
@@ -82,6 +98,9 @@ struct LProFeedSettingsView: View {
         case "premium-upsell": return "Premium upsells"
         case "commented": return "Comment-surfaced posts"
         case "reposted": return "Reposted posts"
+        case "followed-by": return "Followed by…"
+        case "out-of-network": return "Out-of-network people"
+        case "company": return "Company & Page posts"
         default: return reason
         }
     }

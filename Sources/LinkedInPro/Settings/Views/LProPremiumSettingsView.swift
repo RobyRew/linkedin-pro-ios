@@ -8,6 +8,9 @@ import SwiftUI
 // UserDefaults.lproPremium; PremiumEnabler applies a change.
 struct LProPremiumSettingsView: View {
     @State private var options = UserDefaults.lproPremium
+    // "Hide upgrade prompts" (id "upsells") is the same setting as the Ads panel's
+    // "Hide Premium upselling" - both read/write lproFeedFilter.hidePremiumUpsell.
+    @State private var feed = UserDefaults.lproFeedFilter
 
     var body: some View {
         List {
@@ -41,7 +44,7 @@ struct LProPremiumSettingsView: View {
                                     .foregroundStyle(item.effect == .clientSide ? Color.green : .secondary)
                             }
                         }
-                        .disabled(!options.spoofPremium)
+                        .disabled(!options.spoofPremium && item.id != "upsells")
                     }
                 } label: {
                     Label(group.title, systemImage: group.symbol)
@@ -52,6 +55,10 @@ struct LProPremiumSettingsView: View {
         .onChange(of: options) { _, newValue in
             UserDefaults.lproPremium = newValue
             PremiumEnabler.sync(newValue)
+        }
+        .onChange(of: feed) { _, newValue in
+            UserDefaults.lproFeedFilter = newValue
+            LProViewSweeper.schedule()
         }
     }
 
@@ -64,7 +71,14 @@ struct LProPremiumSettingsView: View {
     }
 
     private func binding(_ id: String) -> Binding<Bool> {
-        Binding(
+        if id == "upsells" {
+            // Shared with the Ads panel; backed by lproFeedFilter, not the spoof.
+            return Binding(
+                get: { feed.hidePremiumUpsell },
+                set: { on in feed.hidePremiumUpsell = on }
+            )
+        }
+        return Binding(
             get: { options.isEnabled(id) },
             set: { on in options.set(id, on) }
         )

@@ -187,6 +187,7 @@ enum SDUIFeedFilter {
         let opt = UserDefaults.lproFeedFilter
         guard opt.hideSponsored || opt.hidePromotions || opt.hidePremiumUpsell
             || opt.hideReactionSurfaced || opt.hideCommentSurfaced || opt.hideRepostSurfaced
+            || opt.hideFollowedBy || opt.hideOutOfNetwork || opt.hideCompanyPosts
         else { return nil }
 
         var budget = 500
@@ -200,8 +201,45 @@ enum SDUIFeedFilter {
         }
         if opt.hideCommentSurfaced, isCommentSurfaced(header) { return "commented" }
         if opt.hideRepostSurfaced, isRepostSurfaced(header) { return "reposted" }
+        if opt.hideFollowedBy, isFollowedBy(header) { return "followed-by" }
         if opt.hidePromotions, isPromotion(markers) { return "promotion" }
+        // Relational filters last: they are the broadest, so a card that also
+        // matched a more specific reason above is attributed to that reason.
+        if opt.hideCompanyPosts, isCompanyPost(header) { return "company" }
+        if opt.hideOutOfNetwork, isOutOfNetwork(header) { return "out-of-network" }
         return nil
+    }
+
+    // "Followed by X" / "X follows this" social proof in the header band.
+    private static func isFollowedBy(_ header: [Marker]) -> Bool {
+        for marker in header {
+            let t = marker.text.lowercased()
+            guard t.count < 90 else { continue }
+            if t.contains("followed by") || t.contains("follows this") { return true }
+        }
+        return false
+    }
+
+    // Author is outside your network: the header carries a 2nd/3rd-degree chip
+    // (e.g. " • 3rd+"). 1st-degree connections and your own posts never show one.
+    private static func isOutOfNetwork(_ header: [Marker]) -> Bool {
+        for marker in header {
+            let t = marker.text.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+            guard t.count < 16 else { continue }   // the degree chip is tiny
+            if t.contains("2nd") || t.contains("3rd") { return true }
+        }
+        return false
+    }
+
+    // Company / Page post: the actor avatar's accessibility label is
+    // "View company: <name>" (confirmed live). People's actors say "View <name>'s
+    // profile" instead, so this does not catch member posts.
+    private static func isCompanyPost(_ header: [Marker]) -> Bool {
+        for marker in header {
+            let t = marker.text.lowercased()
+            if t.hasPrefix("view company:") || t.hasPrefix("view page:") { return true }
+        }
+        return false
     }
 
     // Accessibility labels + any UILabel text, each with its y in cell space. The

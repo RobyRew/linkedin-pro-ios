@@ -72,6 +72,7 @@ private struct LProNavRow: View {
 struct LProSettingsView: View {
     // Pushes a sub-screen onto the hosting UIKit navigation controller.
     let push: (AnyView, String) -> Void
+    @State private var devKit = LProDevKit.isEnabled
 
     var body: some View {
         List {
@@ -117,22 +118,22 @@ struct LProSettingsView: View {
             }
 
             Section {
-                HStack(spacing: 12) {
-                    LProIconTile(symbol: "terminal.fill", tint: .gray)
-                    VStack(alignment: .leading, spacing: 1) {
-                        Text("DevKit console (Striker)")
-                        Text(LProDevKit.isEnabled
-                             ? "On · 127.0.0.1:\(LProDevKit.port)"
-                             : "Off")
-                            .font(.caption.monospaced())
-                            .foregroundStyle(LProDevKit.isEnabled ? .green : .secondary)
+                Toggle(isOn: $devKit) {
+                    HStack(spacing: 12) {
+                        LProIconTile(symbol: "terminal.fill", tint: .gray)
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text("DevKit console (Striker)")
+                            Text(devKit ? "On · 127.0.0.1:\(LProDevKit.port)" : "Off")
+                                .font(.caption.monospaced())
+                                .foregroundStyle(devKit ? .green : .secondary)
+                        }
                     }
                 }
-                .padding(.vertical, 2)
+                .onChange(of: devKit) { _, on in LProDevKit.setEnabled(on) }
             } header: {
                 Text("Developer")
             } footer: {
-                Text("Loopback introspection console, always on for this build. Reach it over USB with `iproxy \(LProDevKit.port) \(LProDevKit.port)`; it answers while LinkedIn is in the foreground.")
+                Text("Loopback introspection console. Reach it over USB with `iproxy \(LProDevKit.port) \(LProDevKit.port)`; it answers while LinkedIn is in the foreground. Starting/stopping here takes effect immediately.")
             }
 
             Section("About") {

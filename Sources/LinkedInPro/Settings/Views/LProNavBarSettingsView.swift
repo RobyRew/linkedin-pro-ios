@@ -37,6 +37,14 @@ struct LProNavBarSettingsView: View {
     var body: some View {
         List {
             Section {
+                tabBarPreview
+            } header: {
+                Text("Preview")
+            } footer: {
+                Text("How the bottom bar will look. Drag an icon to reorder; it applies live and persists. iOS shows at most five tabs.")
+            }
+
+            Section {
                 Toggle(isOn: $options.hideLabels) {
                     Label("Hide tab labels", systemImage: "textformat.size")
                 }
@@ -126,7 +134,7 @@ struct LProNavBarSettingsView: View {
                 } header: {
                     Text("Other tab types")
                 } footer: {
-                    Text("This LinkedIn build exposes five tab types; chat and video are not among them.")
+                    Text("Tap + to add a tab type LinkedIn did not surface by default. Messaging / Chats is experimental \u{2014} it is built through LinkedIn's own factory and may not bind on every build; if it does not appear after Apply, this build will not host it as a tab.")
                 }
             }
 
@@ -244,6 +252,70 @@ struct LProNavBarSettingsView: View {
         LProGlassFlag.set(options.iOS26GlassTabs)
         TabEngine.applyAppearance()
         _ = TabEngine.apply()
+    }
+
+    // A live mock of the bottom bar: the real captured icons (or an SF Symbol
+    // fallback), labels unless icon-only is on, in the current order. Dragging a
+    // chip onto another reorders them, which persists and re-applies immediately.
+    @ViewBuilder
+    private var tabBarPreview: some View {
+        Group {
+            if activeTabs.isEmpty {
+                Text("Open LinkedIn once so its tabs appear here.")
+                    .font(.footnote).foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .center)
+                    .padding(.vertical, 8)
+            } else {
+                HStack(spacing: 2) {
+                    ForEach(Array(activeTabs.prefix(maxTabs)), id: \.self) { name in
+                        previewChip(name)
+                            .draggable(name)
+                            .dropDestination(for: String.self) { items, _ in
+                                guard let src = items.first, src != name else { return false }
+                                reorder(src, before: name)
+                                return true
+                            }
+                    }
+                }
+                .padding(.vertical, 6)
+                .padding(.horizontal, 8)
+                .background(
+                    RoundedRectangle(cornerRadius: 22, style: .continuous)
+                        .fill(Color(uiColor: .tertiarySystemBackground))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 22, style: .continuous)
+                        .stroke(Color.primary.opacity(0.08), lineWidth: 1)
+                )
+            }
+        }
+        .listRowInsets(EdgeInsets(top: 10, leading: 16, bottom: 10, trailing: 16))
+        .listRowBackground(Color.clear)
+    }
+
+    @ViewBuilder
+    private func previewChip(_ name: String) -> some View {
+        VStack(spacing: 3) {
+            icon(for: name).frame(width: 24, height: 24).foregroundStyle(.primary)
+            if !options.hideLabels {
+                Text(pretty(name))
+                    .font(.system(size: 9)).lineLimit(1).minimumScaleFactor(0.7)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 6)
+        .contentShape(Rectangle())
+    }
+
+    // Move src so it sits where dst is, then persist via the order list.
+    private func reorder(_ src: String, before dst: String) {
+        var list = activeTabs
+        guard let from = list.firstIndex(of: src) else { return }
+        list.remove(at: from)
+        guard let to = list.firstIndex(of: dst) else { return }
+        list.insert(src, at: to)
+        options.order = list + availableTabs
     }
 
     private func pretty(_ raw: String) -> String {

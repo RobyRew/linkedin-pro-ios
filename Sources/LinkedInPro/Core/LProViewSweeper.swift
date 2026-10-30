@@ -35,14 +35,12 @@ enum LProViewSweeper {
         var any: Bool { ad || upsell }
     }
 
-    // Upsell hiding has two independent switches: the Ads panel's "Hide Premium
-    // upselling" and the Premium panel's "Hide upgrade prompts". Either one on
-    // hides upsells, and neither view overwrites the other.
+    // Upsell hiding has one setting - lproFeedFilter.hidePremiumUpsell - shown in
+    // both the Ads panel ("Hide Premium upselling") and the Premium panel ("Hide
+    // upgrade prompts"); both toggles read and write that same value.
     private static func currentRules() -> Rules {
         let feed = UserDefaults.lproFeedFilter
-        let premium = UserDefaults.lproPremium
-        let upsell = feed.hidePremiumUpsell || (premium.spoofPremium && premium.isEnabled("upsells"))
-        return Rules(ad: feed.hideSponsored || feed.hidePromotions, upsell: upsell)
+        return Rules(ad: feed.hideSponsored || feed.hidePromotions, upsell: feed.hidePremiumUpsell)
     }
 
     // Coalesce: schedule a single sweep (plus one settle re-check for cards that

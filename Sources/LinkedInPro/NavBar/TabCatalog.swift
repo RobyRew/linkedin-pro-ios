@@ -16,16 +16,18 @@ enum TabCatalog {
         let symbol: String     // SF Symbol fallback when no real icon was captured
     }
 
-    // LINMainNavTabType.rawValue is an integer enum with exactly these cases,
-    // mapped live through -tabName:
+    // The bar's own tab types map live through -tabName:
     //   0 Feed, 1 Jobs, 2 MyNetwork, 3 Notifications, 4 More
-    // Anything else (messaging, video, games, trendsHub) is not a tab type in
-    // this build and cannot be added to the bar.
+    // MainNavTabTypeFactory also exposes a `messaging` factory method; it is not
+    // one of the bar's default types, so it is offered as an EXPERIMENTAL extra -
+    // TabEngine builds it through LinkedIn's own factory + VC factory and adds it
+    // with setViewControllers, which is non-fatal if the build will not bind it.
     static let extras: [Extra] = [
         Extra(selector: "feed",          title: "Home / Feed",   symbol: "house.fill"),
         Extra(selector: "jobs",          title: "Jobs",          symbol: "briefcase.fill"),
         Extra(selector: "myNetwork",     title: "My Network",    symbol: "person.2.fill"),
         Extra(selector: "notifications", title: "Notifications", symbol: "bell.fill"),
+        Extra(selector: "messaging",     title: "Messaging / Chats", symbol: "message.fill"),
         Extra(selector: "more",          title: "More",          symbol: "ellipsis"),
     ]
 
