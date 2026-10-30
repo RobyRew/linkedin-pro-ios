@@ -5,8 +5,6 @@ import SwiftUI
 // iOS 26 Liquid Glass styling once the nav-bar feature flips LinkedIn's design
 // opt-out (Phase 3). Feature sections fill in per phase.
 struct LProSettingsView: View {
-    @State private var devKit = LProDevKit.isEnabled
-
     var body: some View {
         List {
             Section {
@@ -46,21 +44,17 @@ struct LProSettingsView: View {
             }
 
             Section {
-                Toggle(isOn: $devKit) {
-                    Label("DevKit console (Striker)", systemImage: "terminal")
-                }
-                .onChange(of: devKit) { _, newValue in
-                    LProDevKit.setEnabled(newValue)
-                }
-                LabeledContent("Status") {
-                    Text(devKit ? "Listening on 127.0.0.1:\(LProDevKit.port)" : "Off")
-                        .foregroundStyle(devKit ? .green : .secondary)
+                LabeledContent {
+                    Text(LProDevKit.isEnabled ? "On · 127.0.0.1:\(LProDevKit.port)" : "Off")
+                        .foregroundStyle(LProDevKit.isEnabled ? .green : .secondary)
                         .font(.footnote.monospaced())
+                } label: {
+                    Label("DevKit console (Striker)", systemImage: "terminal")
                 }
             } header: {
                 Text("Developer")
             } footer: {
-                Text("The Striker introspection console, reachable over USB with `iproxy \(LProDevKit.port) \(LProDevKit.port)`. Starting/stopping here takes effect immediately.")
+                Text("The Striker introspection console is always on for this build (loopback only), reachable over USB with `iproxy \(LProDevKit.port) \(LProDevKit.port)`; it answers while LinkedIn is in the foreground. Build it with -DLPRO_DEVKIT_OFF, or drop a LPRO_DEVKIT_OFF file in the app's Documents, to ship without it.")
             }
 
             Section("Versions") {
