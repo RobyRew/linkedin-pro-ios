@@ -114,22 +114,65 @@ enum TabEngine {
 
     // MARK: - dynamic apply
 
-    // Returns true when the bar was rebuilt.
+    // Returns true when the bar was changed. On iOS 18+ it reorders the modern
+    // UITab collection in place (preserving identity); otherwise, and whenever an
+    // extra tab must be built, it rebuilds viewControllers.
     @discardableResult
     static func apply() -> Bool {
-        guard let tbc = tabBarController, let current = tbc.viewControllers, !current.isEmpty else {
+        guard let tbc = tabBarController else {
             LProLog.write("[navbar] apply: no tab bar controller captured yet")
             return false
         }
         let opt = UserDefaults.lproTabBar
+
+        if #available(iOS 18.0, *), opt.extraTabs.isEmpty, !tbc.tabs.isEmpty {
+            return applyModern(tbc, opt)
+        }
+        return applyLegacy(tbc, opt)
+    }
+
+    // iOS 18+: reorder / hide the existing UITab objects in place. Reusing the same
+    // UITab instances (never new ones) keeps each tab's identifier, LinkedIn's
+    // selection and state restoration, and the system More overflow - all of which
+    // a viewControllers rebuild would discard.
+    @available(iOS 18.0, *)
+    private static func applyModern(_ tbc: UITabBarController, _ opt: TabBarOptions) -> Bool {
+        let current = tbc.tabs
+        let named: [(name: String, value: UITab)] = current.map { tab in
+            (name: resolvedName(title: tab.title, viewController: tab.viewController,
+                                identifier: tab.identifier, discovered: opt.discoveredTabs),
+             value: tab)
+        }
+        let visible = arrange(named, order: opt.order).filter { !opt.hiddenTabs.contains($0.name) }
+        guard !visible.isEmpty else {
+            LProLog.write("[navbar] apply(modern): refusing to remove every tab")
+            return false
+        }
+        let target = visible.map { $0.value }
+        if target.count == current.count, zip(target, current).allSatisfy({ $0.0 === $0.1 }) {
+            return false  // already matches
+        }
+        let selected = tbc.selectedTab
+        tbc.tabs = target
+        if let selected, target.contains(where: { $0 === selected }) {
+            tbc.selectedTab = selected
+        }
+        LProLog.write("[navbar] applied (modern UITab): \(visible.map { $0.name })")
+        return true
+    }
+
+    private static func applyLegacy(_ tbc: UITabBarController, _ opt: TabBarOptions) -> Bool {
+        guard let current = tbc.viewControllers, !current.isEmpty else {
+            LProLog.write("[navbar] apply: no view controllers captured yet")
+            return false
+        }
         let selected = tbc.selectedIndex
 
-        var named: [(name: String, vc: UIViewController)] = []
-        for vc in current {
-            guard let n = canonicalName(for: vc, discovered: opt.discoveredTabs) else { continue }
-            named.append((n, vc))
+        var named: [(name: String, value: UIViewController)] = current.map { vc in
+            (name: resolvedName(title: vc.tabBarItem.title, viewController: vc,
+                                identifier: nil, discovered: opt.discoveredTabs),
+             value: vc)
         }
-        guard !named.isEmpty else { return false }
 
         // Extras that were never built in this run: build them now.
         for selector in opt.extraTabs {
@@ -140,33 +183,38 @@ enum TabEngine {
                 continue
             }
             if named.contains(where: { $0.name == built.name }) { continue }
-            named.append(built)
+            named.append((name: built.name, value: built.vc))
         }
 
-        var ordered: [(name: String, vc: UIViewController)] = []
-        var seen = Set<String>()
-        for name in opt.order where !seen.contains(name) {
-            if let hit = named.first(where: { $0.name == name }) { ordered.append(hit); seen.insert(name) }
-        }
-        for entry in named where !seen.contains(entry.name) {
-            ordered.append(entry); seen.insert(entry.name)
-        }
-
-        let visible = ordered.filter { !opt.hiddenTabs.contains($0.name) }
+        let visible = arrange(named, order: opt.order).filter { !opt.hiddenTabs.contains($0.name) }
         guard !visible.isEmpty else {
             LProLog.write("[navbar] apply: refusing to remove every tab")
             return false
         }
-
-        let target = visible.map { $0.vc }
+        let target = visible.map { $0.value }
         if target.count == current.count, zip(target, current).allSatisfy({ $0.0 === $0.1 }) {
             return false  // already matches
         }
-
         tbc.setViewControllers(target, animated: false)
         if selected < target.count { tbc.selectedIndex = selected }
-        LProLog.write("[navbar] applied dynamically: \(visible.map { $0.name })")
+        LProLog.write("[navbar] applied (viewControllers): \(visible.map { $0.name })")
         return true
+    }
+
+    // Shared ordering: the user's order first (de-duplicated), then anything not
+    // named in that list, in its original relative position - so a tab that could
+    // not be named is still kept and never silently dropped.
+    private static func arrange<T>(_ named: [(name: String, value: T)],
+                                   order desiredOrder: [String]) -> [(name: String, value: T)] {
+        var out: [(name: String, value: T)] = []
+        var seen = Set<String>()
+        for name in desiredOrder where !seen.contains(name) {
+            if let hit = named.first(where: { $0.name == name }) { out.append(hit); seen.insert(name) }
+        }
+        for entry in named where !seen.contains(entry.name) {
+            out.append(entry); seen.insert(entry.name)
+        }
+        return out
     }
 
     // Builds a tab's controller through LinkedIn's own factories: the type comes
@@ -184,19 +232,74 @@ enum TabEngine {
 
     // MARK: - naming
 
-    // LinkedIn's bar titles ("Home", "My Network") vs tabName ("Feed",
-    // "MyNetwork"): match on a normalized form and the names discovered at launch.
-    static func canonicalName(for vc: UIViewController, discovered: [String]) -> String? {
-        guard let title = vc.tabBarItem.title, !title.isEmpty else { return nil }
-        let t = TabCatalog.normalized(title)
+    // LinkedIn shows bar titles ("Home", "My Network") that differ from the tabName
+    // ("Feed", "MyNetwork"); matching is on a normalized form against the names
+    // discovered at launch. Resolution falls back through the tab's identifier and
+    // its view-controller class so a blanked title (icon-only mode) still resolves,
+    // and always returns a non-empty name so a tab is never dropped.
+    static func resolvedName(title: String?, viewController: UIViewController?,
+                             identifier: String?, discovered: [String]) -> String {
+        if let byTitle = canonicalName(forToken: title, discovered: discovered) { return byTitle }
+        if let byID = canonicalName(forToken: identifier, discovered: discovered) { return byID }
+        if let vc = viewController, let byClass = canonicalName(fromClass: vc, discovered: discovered) {
+            return byClass
+        }
+        // Last resort: a stable per-tab name that will not match order / hidden, so
+        // the tab keeps its place and stays visible.
+        if let title, !title.isEmpty { return title }
+        if let vc = viewController { return NSStringFromClass(type(of: vc)) }
+        return (identifier?.isEmpty == false) ? identifier! : "tab"
+    }
+
+    private static func canonicalName(forToken token: String?, discovered: [String]) -> String? {
+        guard let token, !token.isEmpty else { return nil }
+        let t = TabCatalog.normalized(token)
+        guard !t.isEmpty else { return nil }
         if t == "home" { return discovered.first(where: { TabCatalog.normalized($0) == "feed" }) ?? "Feed" }
-        return discovered.first(where: { TabCatalog.normalized($0) == t }) ?? title
+        if let hit = discovered.first(where: { TabCatalog.normalized($0) == t }) { return hit }
+        return alias(for: t, discovered: discovered)
+    }
+
+    // Icon-only mode blanks the title, so fall back to the view-controller's class
+    // name, which contains a known tab token (e.g. "...FeedTab...").
+    private static func canonicalName(fromClass vc: UIViewController, discovered: [String]) -> String? {
+        let classNames = ([vc] + vc.children).map { NSStringFromClass(type(of: $0)).lowercased() }
+        for tab in discovered {
+            let token = TabCatalog.normalized(tab)
+            if token.count >= 4, classNames.contains(where: { $0.contains(token) }) { return tab }
+        }
+        for (token, canon) in classAliases where classNames.contains(where: { $0.contains(token) }) {
+            return discovered.first(where: { TabCatalog.normalized($0) == TabCatalog.normalized(canon) }) ?? canon
+        }
+        return nil
+    }
+
+    private static let classAliases: [(token: String, canon: String)] = [
+        ("feed", "Feed"), ("home", "Feed"), ("mynetwork", "MyNetwork"),
+        ("network", "MyNetwork"), ("notification", "Notifications"), ("notif", "Notifications"),
+        ("messag", "Messaging"), ("job", "Jobs"), ("more", "More"),
+    ]
+
+    private static func alias(for normalizedToken: String, discovered: [String]) -> String? {
+        for (token, canon) in classAliases where normalizedToken.contains(token) {
+            return discovered.first(where: { TabCatalog.normalized($0) == TabCatalog.normalized(canon) }) ?? canon
+        }
+        return nil
     }
 
     static func index(of name: String, in tbc: UITabBarController) -> Int? {
-        guard let vcs = tbc.viewControllers else { return nil }
         let discovered = UserDefaults.lproTabBar.discoveredTabs
-        for (i, vc) in vcs.enumerated() where canonicalName(for: vc, discovered: discovered) == name {
+        if #available(iOS 18.0, *), !tbc.tabs.isEmpty {
+            for (i, tab) in tbc.tabs.enumerated() where resolvedName(
+                title: tab.title, viewController: tab.viewController,
+                identifier: tab.identifier, discovered: discovered) == name {
+                return i
+            }
+        }
+        guard let vcs = tbc.viewControllers else { return nil }
+        for (i, vc) in vcs.enumerated() where resolvedName(
+            title: vc.tabBarItem.title, viewController: vc,
+            identifier: nil, discovered: discovered) == name {
             return i
         }
         return nil

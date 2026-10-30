@@ -5,10 +5,32 @@ import Foundation
 // stable so stored flags survive catalog changes. Each entry is a stored flag
 // only - see PremiumOptions and PremiumEnabler.
 enum PremiumFeatureCatalog {
+    // What flipping a flag actually does, so the panel is honest (see
+    // PREMIUM-SURFACE.md section 7). The client can flip its own gates; it cannot
+    // produce data LinkedIn serves only to entitled members.
+    enum Effect: String {
+        // Wired to a precise on-device hook; the flag has a real local effect.
+        case clientSide
+        // The master client spoof can reveal the entry point / badge, but the
+        // feature's data is served by LinkedIn and a local flag cannot unlock it.
+        case serverGated
+
+        var note: String {
+            switch self {
+            case .clientSide:  return "Takes effect on-device"
+            case .serverGated: return "Entry/UI only \u{2014} LinkedIn serves the data"
+            }
+        }
+    }
+
     struct Item {
         let id: String
         let title: String
         let symbol: String
+        // Defaults to serverGated: most premium features are data LinkedIn gates
+        // on its servers. Only the entries explicitly marked clientSide below are
+        // wired to a local hook (membership cosmetics + the two suppressors).
+        var effect: Effect = .serverGated
     }
 
     struct Group {
@@ -17,15 +39,23 @@ enum PremiumFeatureCatalog {
         let items: [Item]
     }
 
+    // Flags wired to a precise client-side hook (PremiumSpoof / the upsell sweep /
+    // the interstitial skip). Everything else is entry/UI-reveal only.
+    static let clientSideIDs: Set<String> = [
+        "badge", "bar", "logo", "subscriber_flag", "upsells", "interstitials",
+    ]
+
+    static func isClientSide(_ id: String) -> Bool { clientSideIDs.contains(id) }
+
     static let groups: [Group] = [
         Group(title: "Membership", symbol: "crown", items: [
-            Item(id: "badge", title: "Premium badge", symbol: "rosette"),
-            Item(id: "bar", title: "Premium bar", symbol: "rectangle.topthird.inset.filled"),
-            Item(id: "logo", title: "Premium logo", symbol: "star.square"),
-            Item(id: "subscriber_flag", title: "Subscriber flag", symbol: "person.crop.circle.badge.checkmark"),
+            Item(id: "badge", title: "Premium badge", symbol: "rosette", effect: .clientSide),
+            Item(id: "bar", title: "Premium bar", symbol: "rectangle.topthird.inset.filled", effect: .clientSide),
+            Item(id: "logo", title: "Premium logo", symbol: "star.square", effect: .clientSide),
+            Item(id: "subscriber_flag", title: "Subscriber flag", symbol: "person.crop.circle.badge.checkmark", effect: .clientSide),
             Item(id: "storefront", title: "Premium storefront", symbol: "storefront"),
-            Item(id: "upsells", title: "Hide upgrade prompts", symbol: "eye.slash"),
-            Item(id: "interstitials", title: "Skip feature interstitials", symbol: "rectangle.on.rectangle.slash"),
+            Item(id: "upsells", title: "Hide upgrade prompts", symbol: "eye.slash", effect: .clientSide),
+            Item(id: "interstitials", title: "Skip feature interstitials", symbol: "rectangle.on.rectangle.slash", effect: .clientSide),
         ]),
         Group(title: "Profile & network", symbol: "person.crop.circle", items: [
             Item(id: "wvmp", title: "Who viewed your profile", symbol: "eye"),

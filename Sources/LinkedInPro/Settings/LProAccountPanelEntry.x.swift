@@ -27,9 +27,10 @@ class NavPanelVCHook: ClassHook<UIViewController> {
         guard NSStringFromClass(type(of: target)).contains("NavPanelViewController") else { return }
         LProAccountEntry.apply(in: target.view)
         // The "Try Premium" upsell button is added to this panel during layout,
-        // not at viewDidAppear, and LinkedIn can re-add it; re-hide every layout
-        // pass while the option is on (idempotent - a hidden view stays hidden).
-        if UserDefaults.lproFeedFilter.hidePremiumUpsell { LProPremium.hideUpsells() }
+        // not at viewDidAppear, and LinkedIn can re-add it; re-hide on every layout
+        // pass. The shared sweep self-gates (nothing enabled -> no work) and is
+        // bounded, and hiding an already-hidden view is a no-op.
+        LProViewSweeper.sweep()
     }
 }
 

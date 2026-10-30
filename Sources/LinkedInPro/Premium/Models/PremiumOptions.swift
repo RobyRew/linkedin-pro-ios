@@ -2,10 +2,13 @@ import Foundation
 
 // Premium settings.
 //
-// `features` backs the POC panel: one stored flag per entry in
-// PremiumFeatureCatalog, all defaulting to ON. The flags are persisted and
-// handed to PremiumPOC.sync(), which only logs - nothing in the app reads them
-// and no premium behaviour is attached to them.
+// `spoofPremium` is the master client-spoof switch (see PremiumSpoof). `features`
+// holds one stored flag per entry in PremiumFeatureCatalog, all defaulting to ON.
+// The flags marked `.clientSide` (membership cosmetics + the two suppressors) are
+// read live by the spoof hooks / the view sweep and have a real local effect; the
+// `.serverGated` flags describe premium features whose data LinkedIn serves only
+// to entitled members, so a local flag reveals the entry/UI at most. PremiumEnabler
+// applies a change.
 struct PremiumOptions: Codable, Equatable {
     var spoofPremium: Bool = true
     // Master switch for the feature panel; it is a "set all" control rather

@@ -1,7 +1,7 @@
 import SwiftUI
 
 // Ads & sponsored settings. These options are app-wide: the SDUI feed filter
-// drops cards before they are built, and the view sweep in LProAds hides
+// drops cards before they are built, and the shared LProViewSweeper hides
 // sponsored / promoted chrome on every other screen.
 struct LProAdsSettingsView: View {
     @State private var options = UserDefaults.lproFeedFilter

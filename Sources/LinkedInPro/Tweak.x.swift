@@ -16,6 +16,11 @@ struct LinkedInPro: Tweak {
             // view tree to the log when the Me tab opens (async RE over USB).
             HookRegistry.shared.activate(DevKitViewLogGroup(), named: "devkit-viewlog",
                                          requiring: ["UIViewController"])
+            // DevKit-only RE instrument: sample SDUI JSON payloads to name the
+            // sponsored marker. Swizzles NSJSONSerialization (a hot path), so it is
+            // reversible and self-uninstalls after a short sample; install() also
+            // self-gates on DevKit. A normal build never interposes on JSON.
+            SDUIPayloadProbe.install()
         }
 
         // Phase 1 - Settings: a version-independent UINavigationController hook, so
@@ -28,13 +33,14 @@ struct LinkedInPro: Tweak {
         // Hide premium upsell UI (the Me-tab "Try Premium" button, etc.) when enabled.
         HookRegistry.shared.activate(PremiumHideGroup(), named: "premium-hide",
                                      requiring: ["UIViewController"])
+        // Skip the premium-feature-access interstitial (client-side upsell gate)
+        // when "Skip feature interstitials" is on.
+        HookRegistry.shared.activate(PremiumInterstitialSkipGroup(), named: "premium-interstitial-skip",
+                                     requiring: ["UIViewController"])
         // Sponsored / promoted chrome on every screen (the feed also filters its
         // SDUI cards before they are built).
         HookRegistry.shared.activate(AdsHideGroup(), named: "ads-hide",
                                      requiring: ["UIViewController"])
-        // Observation only: summarise SDUI JSON payloads so the sponsored marker
-        // can be identified (the component model is Swift-only, see the file).
-        SDUIPayloadProbe.install()
 
         // Phase 2 - Feed: hook DashFeedUpdateBuilder.build:error: (VoyagerLibs) to drop
         // posts surfaced by a connection's reaction, filtered by reaction type.

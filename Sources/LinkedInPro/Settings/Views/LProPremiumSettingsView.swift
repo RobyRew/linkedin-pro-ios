@@ -1,40 +1,47 @@
 import SwiftUI
 
-// Premium settings: a master switch over collapsible feature groups, plus the
-// client spoof toggle. Every feature flag is stored in UserDefaults.lproPremium
-// and reported to PremiumPOC.sync(); see PremiumOptions for what backs them.
+// Premium settings. The client spoof is the master switch; under it, each feature
+// group lists flags that refine what the spoof reveals. Every flag states what it
+// actually does on-device - "Takes effect on-device" for the wired client-side
+// ones (membership cosmetics + the two suppressors), "Entry/UI only" for the rest,
+// whose data LinkedIn serves to entitled members only. Stored in
+// UserDefaults.lproPremium; PremiumEnabler applies a change.
 struct LProPremiumSettingsView: View {
     @State private var options = UserDefaults.lproPremium
 
     var body: some View {
         List {
             Section {
-                Toggle("Premium features", isOn: masterBinding)
-                LabeledContent("Enabled", value: "\(options.enabledCount)/\(options.featureCount)")
+                Toggle("Spoof Premium (client flags)", isOn: $options.spoofPremium)
             } header: {
-                Text("All features")
+                Text("Client spoof")
             } footer: {
-                Text("Switches every option below on or off together. Each option can still be changed on its own inside its group.")
+                Text("Flips the client's premium flags: gold badge, premium bars and logos, suppressed upgrade prompts, premium entry points. LinkedIn still checks premium on its servers for the data itself, so who-viewed-me lists, analytics, InMail credits and Learning streams stay gated. Turn this off to disable every flag below at once.")
+            }
+
+            Section {
+                Toggle("All features", isOn: masterBinding)
+                LabeledContent("Enabled", value: "\(options.enabledCount)/\(options.featureCount)")
+            } footer: {
+                Text("Switches every flag below on or off together. Each can still be changed on its own inside its group.")
             }
 
             ForEach(PremiumFeatureCatalog.groups, id: \.title) { group in
                 DisclosureGroup {
                     ForEach(group.items, id: \.id) { item in
                         Toggle(isOn: binding(item.id)) {
-                            Label(item.title, systemImage: item.symbol)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Label(item.title, systemImage: item.symbol)
+                                Text(item.effect.note)
+                                    .font(.caption2)
+                                    .foregroundStyle(item.effect == .clientSide ? Color.green : .secondary)
+                            }
                         }
+                        .disabled(!options.spoofPremium)
                     }
                 } label: {
                     Label(group.title, systemImage: group.symbol)
                 }
-            }
-
-            Section {
-                Toggle("Spoof Premium (client flags)", isOn: $options.spoofPremium)
-            } header: {
-                Text("Client")
-            } footer: {
-                Text("Flips the client's premium flags: gold badge, premium bars and logos, suppressed upgrade prompts, premium entry points. LinkedIn still checks premium on its servers for the data itself, so who-viewed-me lists, analytics, InMail credits and Learning streams stay gated.")
             }
         }
         .navigationTitle("Premium")

@@ -31,6 +31,12 @@ struct PremiumSpoofGroup: HookGroup {}
 enum LProPremiumState {
     static var on: Bool { UserDefaults.lproPremium.spoofPremium }
     static let yes = NSNumber(value: true)
+
+    // A specific surface is spoofed when the master spoof is on AND that surface's
+    // flag is enabled (a missing flag defaults on). This lets the per-feature
+    // toggles in the Premium panel actually gate individual surfaces, while the
+    // master switch still governs everything.
+    static func flag(_ id: String) -> Bool { on && UserDefaults.lproPremium.isEnabled(id) }
 }
 
 // MARK: - central gate (BOOL)
@@ -48,11 +54,13 @@ class AuthConfigPremiumHook: ClassHook<NSObject> {
 class PremiumFeatureAccessHook: ClassHook<NSObject> {
     typealias Group = PremiumSpoofGroup
     static let targetName = "PremiumFeatureAccess"
-    func canViewWVMP() -> NSNumber? { LProPremiumState.on ? LProPremiumState.yes : orig.canViewWVMP() }
-    func canBrowseProfiles() -> NSNumber? { LProPremiumState.on ? LProPremiumState.yes : orig.canBrowseProfiles() }
-    func canViewJobAnalytics() -> NSNumber? { LProPremiumState.on ? LProPremiumState.yes : orig.canViewJobAnalytics() }
-    func canViewCompanyInsights() -> NSNumber? { LProPremiumState.on ? LProPremiumState.yes : orig.canViewCompanyInsights() }
-    func canAccessLearningVideos() -> NSNumber? { LProPremiumState.on ? LProPremiumState.yes : orig.canAccessLearningVideos() }
+    // Each per-feature gate is mapped to its catalog flag so a specific entry
+    // point can be left locked. The data behind each still comes from the server.
+    func canViewWVMP() -> NSNumber? { LProPremiumState.flag("wvmp") ? LProPremiumState.yes : orig.canViewWVMP() }
+    func canBrowseProfiles() -> NSNumber? { LProPremiumState.flag("wvmp") ? LProPremiumState.yes : orig.canBrowseProfiles() }
+    func canViewJobAnalytics() -> NSNumber? { LProPremiumState.flag("job_analytics") ? LProPremiumState.yes : orig.canViewJobAnalytics() }
+    func canViewCompanyInsights() -> NSNumber? { LProPremiumState.flag("company_insights") ? LProPremiumState.yes : orig.canViewCompanyInsights() }
+    func canAccessLearningVideos() -> NSNumber? { LProPremiumState.flag("learning_videos") ? LProPremiumState.yes : orig.canAccessLearningVideos() }
 }
 
 class DashFeatureAccessHook: ClassHook<NSObject> {
@@ -66,16 +74,16 @@ class DashFeatureAccessHook: ClassHook<NSObject> {
 class DashProfilePremiumHook: ClassHook<NSObject> {
     typealias Group = PremiumSpoofGroup
     static let targetName = "DashProfile"
-    func premium() -> NSNumber? { LProPremiumState.on ? LProPremiumState.yes : orig.premium() }
+    func premium() -> NSNumber? { LProPremiumState.flag("subscriber_flag") ? LProPremiumState.yes : orig.premium() }
     func showPremiumSubscriberBadge() -> NSNumber? {
-        LProPremiumState.on ? LProPremiumState.yes : orig.showPremiumSubscriberBadge()
+        LProPremiumState.flag("badge") ? LProPremiumState.yes : orig.showPremiumSubscriberBadge()
     }
 }
 
 class MePremiumHook: ClassHook<NSObject> {
     typealias Group = PremiumSpoofGroup
     static let targetName = "Me"
-    func premiumSubscriber() -> NSNumber? { LProPremiumState.on ? LProPremiumState.yes : orig.premiumSubscriber() }
+    func premiumSubscriber() -> NSNumber? { LProPremiumState.flag("subscriber_flag") ? LProPremiumState.yes : orig.premiumSubscriber() }
 }
 
 // MARK: - UI leaf gates (BOOL)
@@ -83,18 +91,18 @@ class MePremiumHook: ClassHook<NSObject> {
 class FeedHeaderPremiumHook: ClassHook<NSObject> {
     typealias Group = PremiumSpoofGroup
     static let targetName = "LINFeedHeaderPresenterStyle"
-    func shouldDisplayPremiumBar() -> Bool { LProPremiumState.on ? true : orig.shouldDisplayPremiumBar() }
-    func shouldDisplayPremiumLogoV2() -> Bool { LProPremiumState.on ? true : orig.shouldDisplayPremiumLogoV2() }
+    func shouldDisplayPremiumBar() -> Bool { LProPremiumState.flag("bar") ? true : orig.shouldDisplayPremiumBar() }
+    func shouldDisplayPremiumLogoV2() -> Bool { LProPremiumState.flag("logo") ? true : orig.shouldDisplayPremiumLogoV2() }
 }
 
 class EntityCardPremiumHook: ClassHook<NSObject> {
     typealias Group = PremiumSpoofGroup
     static let targetName = "LINEntityCardData"
-    func isPremium() -> Bool { LProPremiumState.on ? true : orig.isPremium() }
+    func isPremium() -> Bool { LProPremiumState.flag("badge") ? true : orig.isPremium() }
 }
 
 class LEIADashboardPremiumHook: ClassHook<NSObject> {
     typealias Group = PremiumSpoofGroup
     static let targetName = "LINLEIADashboardConfig"
-    func isPremium() -> Bool { LProPremiumState.on ? true : orig.isPremium() }
+    func isPremium() -> Bool { LProPremiumState.flag("badge") ? true : orig.isPremium() }
 }

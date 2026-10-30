@@ -2,48 +2,88 @@ import UIKit
 import Foundation
 import ObjectiveC.runtime
 
+// SDUI JSON probe - a DevKit-only RE instrument, NOT a shipping feature.
+//
 // The SDUI feed is decoded by Swift-only classes (SDUI.Zen.ComponentCollectionViewModel
 // has no ObjC methods), so there is no selector to hook between the JSON and the
-// component tree. The boundary that IS reachable is NSJSONSerialization.
+// component tree. The one reachable boundary is NSJSONSerialization. To read the
+// feed payload during reverse engineering we swizzle its class method and sample
+// a handful of parses into the tweak log, so the sponsored marker can be named
+// from live data. The parsed object is always returned unchanged.
 //
-// Phase 1 (this file): observe. Every payload that looks like an SDUI document
-// (top-level "componentKey" / "rootComponent" / "components") is summarised once
-// into the tweak log - top-level keys plus any key whose name mentions a
-// sponsored/promoted flag - so the real marker can be identified from live data.
-// The parsed object is returned unchanged.
+// Three properties make this safe to carry in the source without taxing a normal
+// install:
+//   1. It only installs when DevKit is enabled (the console is already gated the
+//      same way). A normal user's build never swizzles NSJSONSerialization at all.
+//   2. The swizzle is REVERSIBLE: the original implementation is kept and restored,
+//      so the hot JSON path returns to zero overhead afterwards.
+//   3. It is SELF-LIMITING: once it has sampled enough (the log/raw caps below), it
+//      restores the original implementation and removes itself. Sampling is a
+//      one-shot during an RE session, not a permanent app-wide interposer.
 //
-// Phase 2 (once the marker is known): rewrite the object on the way out.
+// JSONObjectWithData:options:error: is a very hot path (every JSON parse in the
+// whole app, LinkedIn's frameworks included), which is exactly why it must stay
+// behind the DevKit gate and tear itself down when done.
 enum SDUIPayloadProbe {
     private static var installed = false
     private static var logged = 0
+    private static var rawHits = 0
+
+    // Kept so the swizzle can be undone and the hot path restored.
+    private static var hookedMethod: Method?
+    private static var originalIMP: IMP?
+
+    // Stop sampling (and uninstall) once both of these are satisfied.
+    private static let logCap = 25
+    private static let rawCap = 5
 
     static func install() {
+        // DevKit-only: a normal build never interposes on NSJSONSerialization.
+        guard LProDevKit.isEnabled else { return }
         guard !installed else { return }
-        installed = true
+
         let sel = NSSelectorFromString("JSONObjectWithData:options:error:")
         guard let method = class_getClassMethod(JSONSerialization.self, sel) else { return }
-        let types = method_getTypeEncoding(method)
+
         typealias Fn = @convention(c) (AnyObject, Selector, NSData, UInt,
                                        UnsafeMutablePointer<NSError?>?) -> AnyObject?
-        let orig = unsafeBitCast(method_getImplementation(method), to: Fn.self)
+        let original = method_getImplementation(method)
+        let orig = unsafeBitCast(original, to: Fn.self)
 
         let block: @convention(block) (AnyObject, NSData, UInt,
                                        UnsafeMutablePointer<NSError?>?) -> AnyObject? = { obj, data, opts, err in
             let result = orig(obj, sel, data, opts, err)
-            SDUIPayloadProbe.inspect(result, bytes: data.count)
-            SDUIPayloadProbe.noteRawBytes(data)
+            SDUIPayloadProbe.observe(result, data: data)
             return result
         }
         method_setImplementation(method, imp_implementationWithBlock(block))
-        LProLog.write("[json] installed JSON probe (all parses sampled)")
+
+        hookedMethod = method
+        originalIMP = original
+        installed = true
+        LProLog.write("[json] DevKit probe installed (self-uninstalls after \(logCap) parses / \(rawCap) raw hits)")
     }
 
-    private static var rawHits = 0
+    // Restore the original implementation; the hot JSON path returns to no overhead.
+    static func uninstall() {
+        guard installed, let method = hookedMethod, let imp = originalIMP else { return }
+        method_setImplementation(method, imp)
+        installed = false
+        LProLog.write("[json] DevKit probe uninstalled (sampling complete)")
+    }
+
+    // One observation per parse. Cheap early-out until something is worth logging,
+    // and a hard stop that tears the swizzle down once sampling is done.
+    private static func observe(_ result: AnyObject?, data: NSData) {
+        inspect(result, bytes: data.count)
+        noteRawBytes(data)
+        if logged >= logCap && rawHits >= rawCap { uninstall() }
+    }
 
     // Early signal that the feed JSON passes through here at all, independent of
     // how it happens to be shaped after parsing.
-    static func noteRawBytes(_ data: NSData) {
-        guard rawHits < 5, data.length > 2048 else { return }
+    private static func noteRawBytes(_ data: NSData) {
+        guard rawHits < rawCap, data.length > 2048 else { return }
         let needle = Data("componentKey".utf8)
         if (data as Data).range(of: needle) != nil {
             rawHits += 1
@@ -52,7 +92,7 @@ enum SDUIPayloadProbe {
     }
 
     private static func inspect(_ object: Any?, bytes: Int) {
-        guard logged < 25 else { return }
+        guard logged < logCap else { return }
 
         var sduiPath: [String] = []
         if let dict = object as? [String: Any] {

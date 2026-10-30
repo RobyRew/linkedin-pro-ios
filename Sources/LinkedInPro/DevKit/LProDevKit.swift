@@ -1,4 +1,5 @@
 import Foundation
+import UIKit
 import LinkedInProC
 
 // DevKit: the on-device introspection console (Striker, from the striker
@@ -36,10 +37,27 @@ enum LProDevKit {
 
     static var isRunning: Bool { StrikerIsRunning() != 0 }
 
+    private static var rearmObserver: NSObjectProtocol?
+
     static func startIfEnabled() {
         guard isEnabled else { return }
         StrikerStartOnPort(port)
+        installForegroundRearm()
         LProLog.write("[devkit] Striker console on 127.0.0.1:\(port) - bridge with `iproxy \(port) \(port)`")
+    }
+
+    // The loopback listener runs on a detached thread; iOS can tear its socket down
+    // when the app is suspended, after which the console would be silent until a
+    // relaunch. Re-arm on every foreground so it is reachable in each session.
+    // Idempotent: StrikerStartOnPort is a no-op while it is already running.
+    private static func installForegroundRearm() {
+        guard rearmObserver == nil else { return }
+        rearmObserver = NotificationCenter.default.addObserver(
+            forName: UIApplication.didBecomeActiveNotification, object: nil, queue: .main) { _ in
+            guard isEnabled, !isRunning else { return }
+            StrikerStartOnPort(port)
+            LProLog.write("[devkit] Striker re-armed on foreground (127.0.0.1:\(port))")
+        }
     }
 
     // Persist the toggle and bring the listener up/down immediately.
