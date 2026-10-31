@@ -110,3 +110,23 @@ extension UserDefaults {
     @UserDefault(key: "lproFeedFilter", defaultValue: FeedFilterOptions())
     static var lproFeedFilter: FeedFilterOptions
 }
+
+// In-process cache of the decoded feed-filter options. `@UserDefault` decodes the
+// JSON blob on EVERY read, and the SDUI feed filter reads the options once per
+// displayed card (plus the view sweep and the premium eligibility hooks), so the
+// raw accessor is cached here and invalidated whenever a settings screen writes
+// it. Accessed only on the main thread (feed display + settings writes), so no
+// lock is needed. Reading via this cache instead of UserDefaults.lproFeedFilter
+// removes a per-card JSON decode from the scroll hot path.
+enum LProFeedFilterCache {
+    private static var cached: FeedFilterOptions?
+
+    static var current: FeedFilterOptions {
+        if let c = cached { return c }
+        let o = UserDefaults.lproFeedFilter
+        cached = o
+        return o
+    }
+
+    static func invalidate() { cached = nil }
+}

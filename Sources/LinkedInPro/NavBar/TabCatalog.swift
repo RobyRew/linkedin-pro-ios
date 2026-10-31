@@ -52,11 +52,28 @@ enum TabCatalog {
         return NSStringFromClass(type(of: tabType))
     }
 
-    // Calls one of the factory's zero-argument tab-type methods on the LIVE
-    // instance (never a model we create) and returns the tab type object.
+    // Resolves a tab type from one of LinkedIn's own zero-argument factory methods
+    // (never a model we construct - that traps).
+    //
+    // On this build the tab-type constructors (+feed / +messaging / +jobs / …) are
+    // CLASS methods on LINMainNavTabType, not instance methods on the factory, so
+    // calling them on the live factory instance returned nil - the reason Messaging
+    // / Chats logged "cannot build messaging". Try the factory instance first (older
+    // builds), then the class method on LINMainNavTabType.
     static func tabType(selector: String, factory: NSObject?) -> NSObject? {
-        guard let factory, factory.responds(to: NSSelectorFromString(selector)) else { return nil }
-        return factory.perform(NSSelectorFromString(selector))?.takeUnretainedValue() as? NSObject
+        let sel = NSSelectorFromString(selector)
+        if let factory, factory.responds(to: sel),
+           let obj = factory.perform(sel)?.takeUnretainedValue() as? NSObject {
+            return obj
+        }
+        if let cls = NSClassFromString("LINMainNavTabType") {
+            let classObj = cls as AnyObject
+            if classObj.responds(to: sel),
+               let obj = classObj.perform(sel)?.takeUnretainedValue() as? NSObject {
+                return obj
+            }
+        }
+        return nil
     }
 
     // "myNetwork" and "My Network" / "MY_NETWORK" compare equal.

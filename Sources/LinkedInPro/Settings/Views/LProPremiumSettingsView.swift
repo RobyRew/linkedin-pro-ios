@@ -58,6 +58,7 @@ struct LProPremiumSettingsView: View {
         }
         .onChange(of: feed) { _, newValue in
             UserDefaults.lproFeedFilter = newValue
+            LProFeedFilterCache.invalidate()
             LProViewSweeper.schedule()
         }
     }

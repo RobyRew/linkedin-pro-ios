@@ -103,12 +103,12 @@ enum SDUICellFilterInstaller {
                 if SDUIFeedFilter.mark(cv, indexPath.item) {
                     SDUIFeedStats.note(reason)
                     LProLog.write("[feed] hid item \(indexPath.item) (\(reason))")
-                    cv.collectionViewLayout.invalidateLayout()
+                    SDUIFeedFilter.scheduleInvalidation(cv, indexPath)
                 }
             } else {
                 cell.isHidden = false
                 if SDUIFeedFilter.unmark(cv, indexPath.item) {
-                    cv.collectionViewLayout.invalidateLayout()
+                    SDUIFeedFilter.scheduleInvalidation(cv, indexPath)
                 }
             }
         }
@@ -161,16 +161,66 @@ enum SDUIFeedStats {
 
 enum SDUIFeedFilter {
     // Only act on the main feed, not every SDUI screen that shares this data
-    // source class (jobs, the More tab, ...).
+    // source class (jobs, the More tab, ...). The answer is stable for a given
+    // collection view, so it is cached per instance: the responder-chain walk ran
+    // on every willDisplay before, once per cell.
+    private static var isFeedKey: UInt8 = 0
     static func isFeed(_ collectionView: UICollectionView) -> Bool {
+        if let cached = objc_getAssociatedObject(collectionView, &isFeedKey) as? NSNumber {
+            return cached.boolValue
+        }
         var responder: UIResponder? = collectionView
         var hops = 0
+        var result = false
         while let r = responder, hops < 24 {
-            if NSStringFromClass(type(of: r)).contains("FeedSDUIViewController") { return true }
+            if NSStringFromClass(type(of: r)).contains("FeedSDUIViewController") { result = true; break }
             responder = r.next
             hops += 1
         }
-        return false
+        objc_setAssociatedObject(collectionView, &isFeedKey, NSNumber(value: result),
+                                 .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+        return result
+    }
+
+    // Coalesced, TARGETED layout invalidation. A hide/unhide changes one item's
+    // height (to 0, or back), so only that item needs re-laying out. The old code
+    // called `collectionViewLayout.invalidateLayout()` synchronously inside
+    // willDisplay: a full invalidation re-runs sizeForItem for every item AND
+    // re-displays (so re-classifies) every visible cell, and each newly matched
+    // card triggered another full pass - the stall under heavy filtering
+    // (out-of-network / company hide a large share of cards). Instead, record the
+    // changed item and, once per run-loop turn, invalidate just those items with a
+    // flow-layout context. Scheduling on the next turn also avoids re-entering
+    // layout from within a layout/display pass.
+    private static var pendingKey: UInt8 = 0
+    private static var flushScheduledKey: UInt8 = 0
+
+    private static func pendingItems(_ cv: UICollectionView) -> NSMutableSet {
+        if let s = objc_getAssociatedObject(cv, &pendingKey) as? NSMutableSet { return s }
+        let s = NSMutableSet()
+        objc_setAssociatedObject(cv, &pendingKey, s, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+        return s
+    }
+
+    static func scheduleInvalidation(_ cv: UICollectionView, _ indexPath: IndexPath) {
+        pendingItems(cv).add(indexPath)
+        guard objc_getAssociatedObject(cv, &flushScheduledKey) == nil else { return }
+        objc_setAssociatedObject(cv, &flushScheduledKey, true, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+        DispatchQueue.main.async { [weak cv] in
+            guard let cv else { return }
+            objc_setAssociatedObject(cv, &flushScheduledKey, nil, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+            let set = pendingItems(cv)
+            let paths = set.allObjects.compactMap { $0 as? IndexPath }
+            set.removeAllObjects()
+            guard !paths.isEmpty else { return }
+            if let flow = cv.collectionViewLayout as? UICollectionViewFlowLayout {
+                let ctx = UICollectionViewFlowLayoutInvalidationContext()
+                ctx.invalidateItems(at: paths)
+                flow.invalidateLayout(with: ctx)
+            } else {
+                cv.collectionViewLayout.invalidateLayout()
+            }
+        }
     }
 
     private struct Marker {
@@ -184,7 +234,7 @@ enum SDUIFeedFilter {
 
     // The category this card falls into, if the matching option is on; else nil.
     static func hideReason(for cell: UICollectionViewCell) -> String? {
-        let opt = UserDefaults.lproFeedFilter
+        let opt = LProFeedFilterCache.current
         guard opt.hideSponsored || opt.hidePromotions || opt.hidePremiumUpsell
             || opt.hideReactionSurfaced || opt.hideCommentSurfaced || opt.hideRepostSurfaced
             || opt.hideFollowedBy || opt.hideOutOfNetwork || opt.hideCompanyPosts
@@ -257,7 +307,13 @@ enum SDUIFeedFilter {
                 texts.append(t)
             }
             if !texts.isEmpty {
-                let y = view.convert(view.bounds, to: cell).minY
+                // Y is only consulted for short header markers (every header check
+                // guards text.count < 90). A long body label can never be a header
+                // marker, so skip its coordinate conversion - convert() is the per
+                // node cost of this walk.
+                let y: CGFloat = texts.contains(where: { $0.count < 90 })
+                    ? view.convert(view.bounds, to: cell).minY
+                    : .greatestFiniteMagnitude
                 for t in texts { out.append(Marker(text: t, minY: y)) }
             }
             for sub in view.subviews { walk(sub, depth + 1) }

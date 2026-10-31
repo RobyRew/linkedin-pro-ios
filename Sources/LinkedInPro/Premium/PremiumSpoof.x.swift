@@ -30,6 +30,16 @@ struct PremiumSpoofGroup: HookGroup {}
 
 enum LProPremiumState {
     static let yes = NSNumber(value: true)
+    static let no = NSNumber(value: false)
+
+    // When the user is hiding premium upselling, report the trial / reactivation /
+    // upgrade ELIGIBILITY gates as not-eligible so the app never GENERATES the
+    // "Try Premium for €0" offers in the first place (the view sweep then has far
+    // less to catch). A spoofed premium member is not trial-eligible anyway, so
+    // this is consistent. Reads UserDefaults directly (not the main-thread feed
+    // cache): these gates can be evaluated off the main thread and are not a
+    // per-card hot path.
+    static var suppressUpsellOffers: Bool { UserDefaults.lproFeedFilter.hidePremiumUpsell }
 
     // UserDefaults.lproPremium decodes a JSON blob on every read, and the premium
     // hooks (especially the hot hasAccess gate) read it per call - so cache the
@@ -128,6 +138,19 @@ class PremiumFeatureAccessHook: ClassHook<NSObject> {
     func canViewJobAnalytics() -> NSNumber? { LProPremiumState.flag("job_analytics") ? LProPremiumState.yes : orig.canViewJobAnalytics() }
     func canViewCompanyInsights() -> NSNumber? { LProPremiumState.flag("company_insights") ? LProPremiumState.yes : orig.canViewCompanyInsights() }
     func canAccessLearningVideos() -> NSNumber? { LProPremiumState.flag("learning_videos") ? LProPremiumState.yes : orig.canAccessLearningVideos() }
+
+    // Eligibility-for-offer gates (confirmed present on this build, NSNumber-backed).
+    // Forced not-eligible while upselling is hidden, so "Try Premium" offers are not
+    // produced; otherwise left to LinkedIn. These do NOT grant a capability.
+    func premiumFreeTrialEligible() -> NSNumber? {
+        LProPremiumState.suppressUpsellOffers ? LProPremiumState.no : orig.premiumFreeTrialEligible()
+    }
+    func reactivationFeaturesEligible() -> NSNumber? {
+        LProPremiumState.suppressUpsellOffers ? LProPremiumState.no : orig.reactivationFeaturesEligible()
+    }
+    func premiumLearningUpgradeEligible() -> NSNumber? {
+        LProPremiumState.suppressUpsellOffers ? LProPremiumState.no : orig.premiumLearningUpgradeEligible()
+    }
 }
 
 class DashFeatureAccessHook: ClassHook<NSObject> {

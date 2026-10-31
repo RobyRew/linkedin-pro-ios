@@ -73,6 +73,7 @@ struct LProFeedSettingsView: View {
         .navigationTitle("Feed")
         .onChange(of: options) { _, newValue in
             UserDefaults.lproFeedFilter = newValue
+            LProFeedFilterCache.invalidate()
         }
     }
 

@@ -39,7 +39,7 @@ enum LProViewSweeper {
     // both the Ads panel ("Hide Premium upselling") and the Premium panel ("Hide
     // upgrade prompts"); both toggles read and write that same value.
     private static func currentRules() -> Rules {
-        let feed = UserDefaults.lproFeedFilter
+        let feed = LProFeedFilterCache.current
         return Rules(ad: feed.hideSponsored || feed.hidePromotions, upsell: feed.hidePremiumUpsell)
     }
 

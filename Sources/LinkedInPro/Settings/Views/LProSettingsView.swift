@@ -130,10 +130,28 @@ struct LProSettingsView: View {
                     }
                 }
                 .onChange(of: devKit) { _, on in LProDevKit.setEnabled(on) }
+
+                Button {
+                    push(AnyView(LProStrikerConsoleView()), "Striker console")
+                } label: {
+                    HStack(spacing: 12) {
+                        LProIconTile(symbol: "text.line.first.and.arrowtriangle.forward", tint: .gray)
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text("Remote command console").foregroundStyle(.primary)
+                            Text("Live view of commands and their output")
+                                .font(.caption).foregroundStyle(.secondary)
+                        }
+                        Spacer(minLength: 8)
+                        Image(systemName: "chevron.forward")
+                            .font(.footnote.weight(.semibold)).foregroundStyle(.tertiary)
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
             } header: {
                 Text("Developer")
             } footer: {
-                Text("Loopback introspection console. Reach it over USB with `iproxy \(LProDevKit.port) \(LProDevKit.port)`; it answers while LinkedIn is in the foreground. Starting/stopping here takes effect immediately.")
+                Text("Loopback introspection console. Reach it over USB with `iproxy \(LProDevKit.port) \(LProDevKit.port)`; it answers while LinkedIn is in the foreground. Starting/stopping here takes effect immediately. The command console shows, live, what a connected viewer sends and what it gets back.")
             }
 
             Section("About") {

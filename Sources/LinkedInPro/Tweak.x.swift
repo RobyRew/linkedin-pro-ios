@@ -92,6 +92,12 @@ struct LinkedInPro: Tweak {
         // Installed early so it is in place before UIKit configures the design.
         HookRegistry.shared.activate(GlassTabsGroup(), named: "glass-tabs",
                                      requiring: ["NSBundle"])
+        // iOS 26 Liquid Glass chrome: re-assert a glass/transparent appearance on
+        // every nav bar + tab bar so the top bar is glass, the opaque strip behind
+        // the bottom bar is gone on all tabs, and content runs edge to edge. Same
+        // gate as the tab-bar flip (LProGlassFlag).
+        HookRegistry.shared.activate(GlassChromeGroup(), named: "glass-chrome",
+                                     requiring: ["UINavigationBar"])
     }
 
     // Orion's default handleError forwards to handleErrorDefault, which calls

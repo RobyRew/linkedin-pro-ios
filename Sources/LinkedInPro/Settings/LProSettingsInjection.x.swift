@@ -29,17 +29,37 @@ final class LProSettingsOpener: NSObject {
     static let shared = LProSettingsOpener()
 
     @objc func open() {
+        // Prefer the app's own tab navigation stack. Pushing there with the bottom
+        // bar NOT hidden keeps LinkedIn's real tab bar visible under the tweak
+        // settings (the native-tab-bar request). The account panel is a presented
+        // overlay that covers the bar, so dismiss it first, then push on the
+        // selected tab's nav - which lives inside the tab bar controller.
+        if let tbc = Self.appTabBarController(), let nav = Self.tabNavigation(of: tbc) {
+            let push = {
+                let host = LProSettingsViewController()
+                host.hidesBottomBarWhenPushed = false
+                nav.pushViewController(host, animated: true)
+                LProLog.write("[settings] pushed onto app tab nav \(NSStringFromClass(type(of: nav))) (tab bar kept)")
+            }
+            if let presented = tbc.presentedViewController {
+                presented.dismiss(animated: true) { push() }
+            } else {
+                push()
+            }
+            return
+        }
+
+        // Fallbacks: whatever stack is in front, else a modal wrapped in a nav.
         let host = LProSettingsViewController()
         guard let top = WindowHelper.topViewController else {
             LProLog.write("[settings] open: no top view controller")
             return
         }
         if let nav = top.navigationController {
+            host.hidesBottomBarWhenPushed = false
             nav.pushViewController(host, animated: true)
             LProLog.write("[settings] pushed onto \(NSStringFromClass(type(of: nav)))")
         } else {
-            // The Me-tab account panel has no navigation controller, so present
-            // modally wrapped in one (title + Done button).
             let nav = UINavigationController(rootViewController: host)
             host.navigationItem.leftBarButtonItem = UIBarButtonItem(
                 barButtonSystemItem: .done, target: LProSettingsOpener.shared,
@@ -47,6 +67,41 @@ final class LProSettingsOpener: NSObject {
             top.present(nav, animated: true)
             LProLog.write("[settings] presented modally from \(NSStringFromClass(type(of: top)))")
         }
+    }
+
+    // The app's main tab bar controller (LINMainNavViewController). Prefer the one
+    // the tab engine already captured; otherwise find it from the key window root.
+    private static func appTabBarController() -> UITabBarController? {
+        if let tbc = TabEngine.tabBarController { return tbc }
+        guard let root = WindowHelper.keyWindow?.rootViewController else { return nil }
+        return findTabBarController(root)
+    }
+
+    private static func findTabBarController(_ vc: UIViewController) -> UITabBarController? {
+        if let tbc = vc as? UITabBarController { return tbc }
+        for child in vc.children {
+            if let found = findTabBarController(child) { return found }
+        }
+        if let presented = vc.presentedViewController {
+            return findTabBarController(presented)
+        }
+        return nil
+    }
+
+    // The navigation controller of the selected tab, so a push lands inside the
+    // tab bar controller (bar stays visible) instead of over it.
+    private static func tabNavigation(of tbc: UITabBarController) -> UINavigationController? {
+        guard let selected = tbc.selectedViewController else { return nil }
+        if let nav = selected as? UINavigationController { return nav }
+        return selected.navigationController ?? findNavigation(selected)
+    }
+
+    private static func findNavigation(_ vc: UIViewController) -> UINavigationController? {
+        if let nav = vc as? UINavigationController { return nav }
+        for child in vc.children {
+            if let found = findNavigation(child) { return found }
+        }
+        return nil
     }
 
     @objc func dismissSettings() {

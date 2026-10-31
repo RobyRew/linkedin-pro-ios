@@ -27,6 +27,7 @@ struct LProAdsSettingsView: View {
         .navigationTitle("Ads & Sponsored")
         .onChange(of: options) { _, newValue in
             UserDefaults.lproFeedFilter = newValue
+            LProFeedFilterCache.invalidate()
         }
     }
 }
