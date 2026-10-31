@@ -9,8 +9,29 @@ struct LProFeedSettingsView: View {
     var body: some View {
         List {
             Section {
+                Toggle(isOn: $options.hideSponsored) {
+                    Label("Hide sponsored posts (Promoted)", systemImage: "megaphone")
+                }
+            } header: {
+                Text("Ads")
+            } footer: {
+                Text("The same setting as Ads & Sponsored \u{2192} \u{201C}Hide sponsored posts\u{201D} \u{2014} changing it here changes it there too.")
+            }
+
+            Section {
                 Toggle(isOn: $options.hideReactionSurfaced) {
                     Label("Hide reaction-surfaced posts", systemImage: "hand.thumbsup")
+                }
+                // The reactions sit directly under the toggle once it is on, so the
+                // set being hidden is right where it is enabled.
+                if options.hideReactionSurfaced {
+                    ForEach(LProReaction.allCases, id: \.self) { reaction in
+                        Toggle(isOn: binding(for: reaction)) {
+                            Label(reaction.displayName, systemImage: reaction.symbol)
+                                .font(.subheadline)
+                        }
+                        .padding(.leading, 20)
+                    }
                 }
                 Toggle(isOn: $options.hideCommentSurfaced) {
                     Label("Hide comment-surfaced posts", systemImage: "text.bubble")
@@ -21,17 +42,7 @@ struct LProFeedSettingsView: View {
             } header: {
                 Text("Surfaced by your network")
             } footer: {
-                Text("Hides posts that appear only because someone in your network reacted to (\u{201C}\u{2026} finds this funny\u{201D}), commented on (\u{201C}\u{2026} commented on this\u{201D}) or reposted (\u{201C}\u{2026} reposted this\u{201D}) them, not posts people you follow authored.")
-            }
-
-            if options.hideReactionSurfaced {
-                Section("Hide which reactions") {
-                    ForEach(LProReaction.allCases, id: \.self) { reaction in
-                        Toggle(isOn: binding(for: reaction)) {
-                            Label(reaction.displayName, systemImage: reaction.symbol)
-                        }
-                    }
-                }
+                Text("Hides posts that appear only because someone in your network reacted to (\u{201C}\u{2026} finds this funny\u{201D}), commented on (\u{201C}\u{2026} commented on this\u{201D}) or reposted (\u{201C}\u{2026} reposted this\u{201D}) them, not posts people you follow authored. Turning on the reaction option lists the reactions right below it \u{2014} switch off any you still want to see.")
             }
 
             Section {

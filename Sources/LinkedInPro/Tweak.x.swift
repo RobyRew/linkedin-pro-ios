@@ -36,11 +36,12 @@ struct LinkedInPro: Tweak {
             // view tree to the log when the Me tab opens (async RE over USB).
             HookRegistry.shared.activate(DevKitViewLogGroup(), named: "devkit-viewlog",
                                          requiring: ["UIViewController"])
-            // DevKit-only RE instrument: sample SDUI JSON payloads to name the
-            // sponsored marker. Swizzles NSJSONSerialization (a hot path), so it is
-            // reversible and self-uninstalls after a short sample; install() also
-            // self-gates on DevKit. A normal build never interposes on JSON.
-            SDUIPayloadProbe.install()
+            // DevKit-only feed capture: record the feed requests the app sends and
+            // the raw JSON responses it receives, from the first load, to a file in
+            // Documents (pulled over USB). Owns the NSJSONSerialization swizzle (so
+            // the older sampling probe is not also installed) and a request hook on
+            // the data-task's -resume. Self-gates on DevKit + the capture flag.
+            LProFeedCapture.install()
         }
 
         // Phase 1 - Settings: a version-independent UINavigationController hook, so
