@@ -249,5 +249,28 @@ struct LProSettingsView: View {
         }
         .listStyle(.insetGrouped)
         .navigationTitle("LinkedIn Professional")
+        .confirmationDialog(pendingAction?.title ?? "",
+                            isPresented: Binding(get: { pendingAction != nil },
+                                                 set: { if !$0 { pendingAction = nil } }),
+                            titleVisibility: .visible,
+                            presenting: pendingAction) { action in
+            Button(action.confirmLabel, role: action.destructive ? .destructive : nil) {
+                resultMessage = action.run()
+                if action == .resetDefaults {
+                    devKit = LProDevKit.isEnabled
+                    captureOn = UserDefaults.lproFeedCaptureEnabled
+                }
+                captureSize = LProFeedCapture.sizeString()
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: { action in
+            Text(action.message)
+        }
+        .alert("Done", isPresented: Binding(get: { resultMessage != nil },
+                                            set: { if !$0 { resultMessage = nil } })) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(resultMessage ?? "")
+        }
     }
 }
