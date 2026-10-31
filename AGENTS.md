@@ -49,6 +49,29 @@ Direct, technical, honest. No marketing voice, no emoji in UI copy. The reader i
 a power user who wants to know exactly what each control changes and what it
 cannot do.
 
+## Reset coverage (mandatory)
+
+The main settings has **Restore tweak's default settings**, backed by
+`LProMaintenance.resetTweakDefaults()`. It must return the WHOLE tweak to a
+fresh-install state. So, whenever you add a feature that persists anything:
+
+- A new `UserDefaults` key → add it to `LProMaintenance.tweakDefaultsKeys`.
+- A new marker file (like the Liquid Glass flag) → reset it in
+  `resetTweakDefaults()` too.
+- A new cached decode (like `LProFeedFilterCache` / `LProPremiumState`) → invalidate
+  it there as well.
+
+A reset that misses a key is a bug: the user asked for defaults and got a stale
+value. Treat updating this function as part of landing the feature, not a follow-up.
+
+## DevKit
+
+`LProFeedCapture` (DevKit-only) records feed requests + raw JSON responses to
+`Documents/feed-capture.txt` from launch, for reverse-engineering what to block at
+the data layer. It owns the single `NSJSONSerialization` swizzle (do not add a
+second interposer on that method) and a `-resume` hook on the data-task class. It
+is gated by DevKit + the capture flag and must never run in a non-DevKit path.
+
 ## Reference
 
 `LProFeedSettingsView` is the canonical example of the structure above (grouped
