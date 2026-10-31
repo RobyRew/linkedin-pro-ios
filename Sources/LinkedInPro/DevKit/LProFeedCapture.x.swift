@@ -63,7 +63,8 @@ enum LProFeedCapture {
         swizzleTaskResume()
         swizzleSessionFactory()      // delegate-based response bodies
         swizzleCompletionHandler()   // completion-based response bodies
-        installURLProtocol()         // SDUI async (data(for:)) response bodies
+        // The SDUI async (data(for:)) responses are captured by LProCaptureURLProtocol,
+        // which LProNetProtocols.install() injects into the session configs.
         let stamp = ISO8601DateFormatter().string(from: Date())
         append(header: "SESSION START \(stamp)  (filters should be OFF for a clean capture)")
         LProLog.write("[capture] feed capture armed -> \(fileURL()?.path ?? "?")")
@@ -287,40 +288,35 @@ enum LProFeedCapture {
     }
 
     // Gate for the URL-protocol tap (also lets the settings toggle disable it live).
+    // LProCaptureURLProtocol (injected by LProNetProtocols) is what captures the SDUI
+    // async data(for:) responses the delegate/completion hooks miss.
     static var protocolActive: Bool { runtimeEnabled && !capped }
     static func noteProtocolResponse(url: String, data: Data) { noteResponseBody(url: url, data: data) }
 
-    // The SDUI feed uses Swift's async URLSession.data(for:), which neither the
-    // delegate nor the completion-handler hook sees. Inject an NSURLProtocol (scoped
-    // to /sdui/ in canInit, so nothing else is touched) to capture that body.
-    private static func installURLProtocol() {
-        URLProtocol.registerClass(LProCaptureURLProtocol.self)
-        for name in ["defaultSessionConfiguration", "ephemeralSessionConfiguration"] {
-            let sel = NSSelectorFromString(name)
-            guard let m = class_getClassMethod(URLSessionConfiguration.self, sel) else { continue }
-            typealias Fn = @convention(c) (AnyObject, Selector) -> URLSessionConfiguration
-            let orig = unsafeBitCast(method_getImplementation(m), to: Fn.self)
-            let block: @convention(block) (AnyObject) -> URLSessionConfiguration = { obj in
-                let config = orig(obj, sel)
-                var classes = config.protocolClasses ?? []
-                if !classes.contains(where: { $0 === LProCaptureURLProtocol.self }) {
-                    classes.insert(LProCaptureURLProtocol.self, at: 0)
-                    config.protocolClasses = classes
-                }
-                return config
-            }
-            method_setImplementation(m, imp_implementationWithBlock(block))
-        }
+    // Binary bodies (the SDUI feed is x-protobuf, not JSON) are written out whole as
+    // .bin files so they survive for off-device decoding; a text body is inlined.
+    private static var bodySeq = 0
+    private static func bodiesDir() -> URL? {
+        guard let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else { return nil }
+        let dir = docs.appendingPathComponent("feed-bodies")
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir
     }
 
     private static func noteResponseBody(url: String, data: Data) {
         guard runtimeEnabled, !capped, data.count > 0, responseURLWanted(url) else { return }
-        let slice = data.count > perResponseCap ? data.prefix(perResponseCap) : data
-        let truncated = data.count > perResponseCap
         queue.async {
             guard !capped else { return }
-            let body = String(data: slice, encoding: .utf8) ?? "(non-UTF8 \(data.count) bytes)"
-            appendRecord("RESP \(stamp()) \(url) \(data.count)B\(truncated ? " (truncated)" : "")", body)
+            if let text = String(data: data.prefix(perResponseCap), encoding: .utf8) {
+                let truncated = data.count > perResponseCap
+                appendRecord("RESP \(stamp()) \(url) \(data.count)B\(truncated ? " (truncated)" : "")", text)
+            } else if let dir = bodiesDir() {
+                bodySeq += 1
+                let name = "body-\(bodySeq).bin"
+                try? data.write(to: dir.appendingPathComponent(name))
+                appendRecord("RESP \(stamp()) \(url) \(data.count)B (binary)",
+                             "binary body saved: feed-bodies/\(name) (\(data.count) bytes; likely x-protobuf)")
+            }
         }
     }
 

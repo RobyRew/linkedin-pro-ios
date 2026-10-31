@@ -31,6 +31,11 @@ struct LinkedInPro: Tweak {
         }
         HookRegistry.shared.logTargetInventory()
         LProDevKit.startIfEnabled()
+        // Network-level premium-upsell blocker (user-gated on hidePremiumUpsell) plus
+        // the DevKit capture protocol. Installed unconditionally and early so it is in
+        // place before LinkedIn builds its API session; each protocol's canInit
+        // self-gates per request, so nothing is intercepted unless its setting is on.
+        LProNetProtocols.install()
         if LProDevKit.isEnabled {
             // DevKit-only: log each VC that appears and dump the account panel's
             // view tree to the log when the Me tab opens (async RE over USB).
@@ -93,12 +98,13 @@ struct LinkedInPro: Tweak {
         // Installed early so it is in place before UIKit configures the design.
         HookRegistry.shared.activate(GlassTabsGroup(), named: "glass-tabs",
                                      requiring: ["NSBundle"])
-        // iOS 26 Liquid Glass chrome: re-assert a glass/transparent appearance on
-        // every nav bar + tab bar so the top bar is glass, the opaque strip behind
-        // the bottom bar is gone on all tabs, and content runs edge to edge. Same
-        // gate as the tab-bar flip (LProGlassFlag).
-        HookRegistry.shared.activate(GlassChromeGroup(), named: "glass-chrome",
-                                     requiring: ["UINavigationBar"])
+        // NOTE: the GlassChrome group (UINavigationBar/UITabBar appearance overrides)
+        // is intentionally NOT activated. On-device RE showed the bottom bar already
+        // renders the native floating Liquid Glass (UILiquidLensView/ClearGlass) from
+        // the baked UIDesignRequiresCompatibility flag, and the top bar is LinkedIn's
+        // own SwiftUI platter (NavigationBarPlatterContainer_v2), which the appearance
+        // APIs cannot reach - the override only turned the top bar solid-white and
+        // disturbed the bottom glass. Left dormant until a platter-level approach.
     }
 
     // Orion's default handleError forwards to handleErrorDefault, which calls
