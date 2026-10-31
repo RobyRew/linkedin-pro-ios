@@ -56,10 +56,13 @@ struct LProNavBarSettingsView: View {
                 Toggle(isOn: $options.iOS26GlassTabs) {
                     Label("Force iOS 26/27 Liquid Glass design", systemImage: "sparkles")
                 }
+                Toggle(isOn: $options.topBarGlass) {
+                    Label("Liquid glass top bar (iOS 26+)", systemImage: "rectangle.tophalf.inset.filled")
+                }
             } header: {
                 Text("Liquid Glass")
             } footer: {
-                Text("Opts the app into the iOS 26 design system (clears UIDesignRequiresCompatibility) so UIKit renders the floating Liquid Glass tab bar, and re-asserts a glass top bar and a transparent background on every tab's bars so content runs edge to edge under them. The sideload build bakes the opt-out into Info.plist, so it is on regardless of this toggle; a jailbreak build reads the toggle at launch \u{2014} relaunch after changing it. App-wide and experimental.")
+                Text("The first opts the app into the iOS 26 design system (clears UIDesignRequiresCompatibility) so UIKit renders the floating Liquid Glass bottom bar; the sideload build bakes this into Info.plist. The second forces the TOP navigation bar's background to a glass material instead of LinkedIn's solid fill, re-applied as LinkedIn re-themes it \u{2014} iOS 26+ only, applies live. Both are app-wide and experimental.")
             }
 
             Section {

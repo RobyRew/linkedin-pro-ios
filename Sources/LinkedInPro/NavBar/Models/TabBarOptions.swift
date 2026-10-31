@@ -33,6 +33,9 @@ struct TabBarOptions: Codable, Equatable {
     var longPressEntry: Bool = true
     // Force the bottom bar alone into dark appearance.
     var darkTabBar: Bool = false
+    // iOS 26+ liquid-glass TOP navigation bar: force the bar background to a glass
+    // material instead of LinkedIn's solid fill. Experimental; toggleable.
+    var topBarGlass: Bool = true
 
     init() {}
 
@@ -49,6 +52,7 @@ struct TabBarOptions: Codable, Equatable {
         defaultTab = try c.decodeIfPresent(String.self, forKey: .defaultTab) ?? d.defaultTab
         longPressEntry = try c.decodeIfPresent(Bool.self, forKey: .longPressEntry) ?? d.longPressEntry
         darkTabBar = try c.decodeIfPresent(Bool.self, forKey: .darkTabBar) ?? d.darkTabBar
+        topBarGlass = try c.decodeIfPresent(Bool.self, forKey: .topBarGlass) ?? d.topBarGlass
     }
 }
 

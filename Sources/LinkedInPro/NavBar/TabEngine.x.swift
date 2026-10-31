@@ -83,6 +83,25 @@ class TabVCFactoryHook: ClassHook<NSObject> {
     }
 }
 
+// LinkedIn builds its DEFAULT tabs without ever calling makeViewControllerForTabType:
+// (confirmed on device: the hook above never fired, so vcFactory stayed nil and no
+// extra tab could be built). The factory IS constructed, though, via
+// -initWithRootContainerProvider:, so capture the instance there - that is the one
+// object that can build an extra tab's controller.
+class TabVCFactoryInitHook: ClassHook<NSObject> {
+    typealias Group = TabEngineGroup
+    static let targetName = "LINMainNavTabBarViewControllerFactory"
+
+    func initWithRootContainerProvider(_ provider: Any?) -> Any? {
+        let result = orig.initWithRootContainerProvider(provider)
+        if let factory = result as? NSObject {
+            TabEngine.vcFactory = factory
+            LProLog.write("[navbar] captured tab VC factory at init")
+        }
+        return result
+    }
+}
+
 enum TabEngine {
     static weak var tabBarController: UITabBarController?
     static weak var typeFactory: NSObject?

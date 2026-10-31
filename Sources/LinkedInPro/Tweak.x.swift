@@ -98,13 +98,13 @@ struct LinkedInPro: Tweak {
         // Installed early so it is in place before UIKit configures the design.
         HookRegistry.shared.activate(GlassTabsGroup(), named: "glass-tabs",
                                      requiring: ["NSBundle"])
-        // NOTE: the GlassChrome group (UINavigationBar/UITabBar appearance overrides)
-        // is intentionally NOT activated. On-device RE showed the bottom bar already
-        // renders the native floating Liquid Glass (UILiquidLensView/ClearGlass) from
-        // the baked UIDesignRequiresCompatibility flag, and the top bar is LinkedIn's
-        // own SwiftUI platter (NavigationBarPlatterContainer_v2), which the appearance
-        // APIs cannot reach - the override only turned the top bar solid-white and
-        // disturbed the bottom glass. Left dormant until a platter-level approach.
+        // The broad GlassChrome group stays dormant (it whitened the top bar and
+        // disturbed the native bottom glass). GlassTopBar is the focused replacement:
+        // iOS 26+ only, toggleable, forces just the TOP bar background to a glass
+        // material instead of LinkedIn's solid fill. The bottom bar is left to the
+        // native floating Liquid Glass from the baked Info.plist flag.
+        HookRegistry.shared.activate(GlassTopBarGroup(), named: "glass-top-bar",
+                                     requiring: ["UINavigationBar"])
     }
 
     // Orion's default handleError forwards to handleErrorDefault, which calls
