@@ -299,7 +299,7 @@ enum TabEngine {
               vcFactory.responds(to: NSSelectorFromString("makeViewControllerForTabType:")),
               let unmanaged = vcFactory.perform(NSSelectorFromString("makeViewControllerForTabType:"), with: type),
               let vc = unmanaged.takeUnretainedValue() as? UIViewController else { return nil }
-        return (TabCatalog.tabName(type), vc)
+        return (TabCatalog.extraName(selector: selector, tabType: type), vc)
     }
 
     // MARK: - naming

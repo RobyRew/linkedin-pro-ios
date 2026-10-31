@@ -52,6 +52,20 @@ enum TabCatalog {
         return NSStringFromClass(type(of: tabType))
     }
 
+    // A stable, friendly name for an EXTRA tab. Most tab types report a usable
+    // tabName (Video, Games, TrendsHub); the messaging type reports an empty one,
+    // so tabName() fell back to the class name ("LINMainNavTabType") - which is an
+    // unstable key the user's order / hidden sets and the settings list cannot
+    // match. When the real tabName is missing (equals the class-name fallback),
+    // derive a canonical name from the selector instead ("messaging" -> "Messaging").
+    static func extraName(selector: String, tabType: NSObject?) -> String {
+        if let tabType {
+            let n = tabName(tabType)
+            if !n.isEmpty, n != NSStringFromClass(type(of: tabType)) { return n }
+        }
+        return selector.prefix(1).uppercased() + selector.dropFirst()
+    }
+
     // Resolves a tab type from one of LinkedIn's own zero-argument factory methods
     // (never a model we construct - that traps).
     //

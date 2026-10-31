@@ -69,7 +69,7 @@ enum TabReorder {
         var extraNames = opt.extraTabNames
         for selector in opt.extraTabs {
             guard let extra = TabCatalog.tabType(selector: selector, factory: factory) else { continue }
-            let name = TabCatalog.tabName(extra)
+            let name = TabCatalog.extraName(selector: selector, tabType: extra)
             extraNames[selector] = name
             if !named.contains(where: { $0.name == name }) {
                 named.append((name: name, obj: extra))
