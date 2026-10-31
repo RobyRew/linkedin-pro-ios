@@ -61,6 +61,8 @@ enum LProFeedCapture {
         runtimeEnabled = true
         swizzleJSON()
         swizzleTaskResume()
+        swizzleSessionFactory()      // delegate-based response bodies
+        swizzleCompletionHandler()   // completion-based response bodies
         let stamp = ISO8601DateFormatter().string(from: Date())
         append(header: "SESSION START \(stamp)  (filters should be OFF for a clean capture)")
         LProLog.write("[capture] feed capture armed -> \(fileURL()?.path ?? "?")")
@@ -172,6 +174,125 @@ enum LProFeedCapture {
                 lines += "\nbody: \(body)"
             }
             appendRecord("REQ \(stamp()) \(method) \(url)", lines)
+        }
+    }
+
+    // MARK: - responses (network body)
+
+    // The SDUI feed decodes its responses with Swift JSONDecoder, not
+    // NSJSONSerialization, so the JSON swizzle above never sees them. Capture the
+    // response BODY at the network layer instead, observe-only (no request is ever
+    // re-issued), two ways that together cover both session styles:
+    //   - delegate-based sessions: swizzle the delegate's didReceiveData /
+    //     didCompleteWithError (accumulate per task, flush on completion).
+    //   - completion-based tasks: wrap the completion handler.
+    private static var taskBufKey: UInt8 = 0
+    private static var swizzledDelegateClasses = Set<ObjectIdentifier>()
+
+    private static func responseURLWanted(_ url: String) -> Bool {
+        let u = url.lowercased()
+        return u.contains("/sdui/") || u.contains("voyagerfeed") || u.contains("feed.mainfeed")
+            || u.contains("graphql") || u.contains("mainfeed")
+    }
+
+    private static func swizzleSessionFactory() {
+        let sel = NSSelectorFromString("sessionWithConfiguration:delegate:delegateQueue:")
+        guard let m = class_getClassMethod(URLSession.self, sel) else { return }
+        typealias Fn = @convention(c) (AnyObject, Selector, AnyObject?, AnyObject?, AnyObject?) -> AnyObject?
+        let orig = unsafeBitCast(method_getImplementation(m), to: Fn.self)
+        let block: @convention(block) (AnyObject, AnyObject?, AnyObject?, AnyObject?) -> AnyObject? = { obj, config, delegate, queue in
+            if let delegate { LProFeedCapture.swizzleDelegate(delegate) }
+            return orig(obj, sel, config, delegate, queue)
+        }
+        method_setImplementation(m, imp_implementationWithBlock(block))
+    }
+
+    // Swizzle a session delegate's data/completion callbacks, once per class, only
+    // where the class actually implements them (never add behaviour it lacked).
+    private static func swizzleDelegate(_ delegateObj: AnyObject) {
+        guard let cls: AnyClass = object_getClass(delegateObj) else { return }
+        let id = ObjectIdentifier(cls)
+        guard !swizzledDelegateClasses.contains(id) else { return }
+        swizzledDelegateClasses.insert(id)
+
+        let recvSel = NSSelectorFromString("URLSession:dataTask:didReceiveData:")
+        if let m = class_getInstanceMethod(cls, recvSel) {
+            typealias Fn = @convention(c) (AnyObject, Selector, AnyObject, AnyObject, NSData) -> Void
+            let orig = unsafeBitCast(method_getImplementation(m), to: Fn.self)
+            let block: @convention(block) (AnyObject, AnyObject, AnyObject, NSData) -> Void = { s, session, task, data in
+                LProFeedCapture.appendTaskData(task, data as Data)
+                orig(s, recvSel, session, task, data)
+            }
+            method_setImplementation(m, imp_implementationWithBlock(block))
+        }
+        let doneSel = NSSelectorFromString("URLSession:task:didCompleteWithError:")
+        if let m = class_getInstanceMethod(cls, doneSel) {
+            typealias Fn = @convention(c) (AnyObject, Selector, AnyObject, AnyObject, AnyObject?) -> Void
+            let orig = unsafeBitCast(method_getImplementation(m), to: Fn.self)
+            let block: @convention(block) (AnyObject, AnyObject, AnyObject, AnyObject?) -> Void = { s, session, task, err in
+                LProFeedCapture.flushTask(task)
+                orig(s, doneSel, session, task, err)
+            }
+            method_setImplementation(m, imp_implementationWithBlock(block))
+        }
+        LProLog.write("[capture] response capture armed on delegate \(cls)")
+    }
+
+    private static func taskBuffer(_ task: AnyObject) -> NSMutableData {
+        if let d = objc_getAssociatedObject(task, &taskBufKey) as? NSMutableData { return d }
+        let d = NSMutableData()
+        objc_setAssociatedObject(task, &taskBufKey, d, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+        return d
+    }
+
+    private static func appendTaskData(_ task: AnyObject, _ data: Data) {
+        guard runtimeEnabled, !capped else { return }
+        let buf = taskBuffer(task)
+        if buf.length < perResponseCap { buf.append(data) }
+    }
+
+    private static func flushTask(_ task: AnyObject) {
+        guard let t = task as? URLSessionTask,
+              let url = (t.currentRequest ?? t.originalRequest)?.url?.absoluteString else {
+            objc_setAssociatedObject(task, &taskBufKey, nil, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+            return
+        }
+        let buf = taskBuffer(task)
+        let data = buf as Data
+        objc_setAssociatedObject(task, &taskBufKey, nil, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+        noteResponseBody(url: url, data: data)
+    }
+
+    // Wrap the completion-handler data-task factory on the concrete session class
+    // (discovered at runtime), to catch completion-based responses.
+    private static func swizzleCompletionHandler() {
+        let probe = URLSession(configuration: .ephemeral)
+        let cls: AnyClass = object_getClass(probe) ?? URLSession.self
+        probe.invalidateAndCancel()
+        let sel = NSSelectorFromString("dataTaskWithRequest:completionHandler:")
+        guard let m = class_getInstanceMethod(cls, sel) else { return }
+        typealias Fn = @convention(c) (AnyObject, Selector, AnyObject, @escaping @convention(block) (NSData?, AnyObject?, AnyObject?) -> Void) -> AnyObject
+        let orig = unsafeBitCast(method_getImplementation(m), to: Fn.self)
+        let block: @convention(block) (AnyObject, AnyObject, @escaping @convention(block) (NSData?, AnyObject?, AnyObject?) -> Void) -> AnyObject = { sess, req, handler in
+            let wrapped: @convention(block) (NSData?, AnyObject?, AnyObject?) -> Void = { data, resp, err in
+                if let data = data as Data?, let url = ((resp as? HTTPURLResponse)?.url ?? (req as? URLRequest)?.url)?.absoluteString {
+                    LProFeedCapture.noteResponseBody(url: url, data: data)
+                }
+                handler(data, resp, err)
+            }
+            return orig(sess, sel, req, wrapped)
+        }
+        method_setImplementation(m, imp_implementationWithBlock(block))
+    }
+
+    private static func noteResponseBody(url: String, data: Data) {
+        guard runtimeEnabled, !capped, data.count > 0, responseURLWanted(url) else { return }
+        let slice = data.count > perResponseCap ? data.prefix(perResponseCap) : data
+        let truncated = data.count > perResponseCap
+        queue.async {
+            guard !capped else { return }
+            let body = String(data: slice, encoding: .utf8) ?? "(non-UTF8 \(data.count) bytes)"
+            appendRecord("RESP \(stamp()) \(url) \(data.count)B\(truncated ? " (truncated)" : "")", body)
         }
     }
 
