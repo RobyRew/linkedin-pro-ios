@@ -49,6 +49,28 @@ class MainNavSetViewControllersHook: ClassHook<UITabBarController> {
     }
 }
 
+// LinkedIn runs the proposed tab view-controller list through
+// -sanitizedTabControllerViewControllers: inside its setViewControllers override,
+// and that filter drops any controller that is not in its default/server-selected
+// set - which is why an added Messaging / Video / Games / TrendsHub tab vanished
+// even though it was built and set (confirmed on device: the bar's viewControllers
+// hold only the 4 default navs). Re-add our own factory-built extras (marked when
+// built) that the filter removed, so the user's added tabs survive.
+class MainNavSanitizeHook: ClassHook<UITabBarController> {
+    typealias Group = TabEngineGroup
+    static let targetName = "LINMainNavViewController"
+
+    func sanitizedTabControllerViewControllers(_ viewControllers: [UIViewController]) -> [UIViewController] {
+        let result = orig.sanitizedTabControllerViewControllers(viewControllers)
+        let dropped = viewControllers.filter { vc in
+            TabEngine.isExtraVC(vc) && !result.contains(where: { $0 === vc })
+        }
+        guard !dropped.isEmpty else { return result }
+        LProLog.write("[navbar] sanitize kept \(result.count), re-added \(dropped.count) extra tab(s)")
+        return result + dropped
+    }
+}
+
 // Captures the VC factory (its -makeViewControllerForTabType: is what builds a
 // tab's controller) so an added tab can be created at runtime.
 class TabVCFactoryHook: ClassHook<NSObject> {
@@ -65,6 +87,16 @@ enum TabEngine {
     static weak var tabBarController: UITabBarController?
     static weak var typeFactory: NSObject?
     static weak var vcFactory: NSObject?
+
+    // Marks a view controller we built for an extra tab, so the sanitize hook can
+    // re-add it when LinkedIn's filter drops it.
+    private static var extraVCKey: UInt8 = 0
+    static func markExtraVC(_ vc: UIViewController) {
+        objc_setAssociatedObject(vc, &extraVCKey, true, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+    }
+    static func isExtraVC(_ vc: UIViewController) -> Bool {
+        (objc_getAssociatedObject(vc, &extraVCKey) as? Bool) == true
+    }
 
     private static var longPressInstalled = false
     private static var didApplyDefault = false
@@ -299,6 +331,7 @@ enum TabEngine {
               vcFactory.responds(to: NSSelectorFromString("makeViewControllerForTabType:")),
               let unmanaged = vcFactory.perform(NSSelectorFromString("makeViewControllerForTabType:"), with: type),
               let vc = unmanaged.takeUnretainedValue() as? UIViewController else { return nil }
+        markExtraVC(vc)
         return (TabCatalog.extraName(selector: selector, tabType: type), vc)
     }
 

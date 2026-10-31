@@ -63,6 +63,7 @@ enum LProFeedCapture {
         swizzleTaskResume()
         swizzleSessionFactory()      // delegate-based response bodies
         swizzleCompletionHandler()   // completion-based response bodies
+        installURLProtocol()         // SDUI async (data(for:)) response bodies
         let stamp = ISO8601DateFormatter().string(from: Date())
         append(header: "SESSION START \(stamp)  (filters should be OFF for a clean capture)")
         LProLog.write("[capture] feed capture armed -> \(fileURL()?.path ?? "?")")
@@ -285,6 +286,33 @@ enum LProFeedCapture {
         method_setImplementation(m, imp_implementationWithBlock(block))
     }
 
+    // Gate for the URL-protocol tap (also lets the settings toggle disable it live).
+    static var protocolActive: Bool { runtimeEnabled && !capped }
+    static func noteProtocolResponse(url: String, data: Data) { noteResponseBody(url: url, data: data) }
+
+    // The SDUI feed uses Swift's async URLSession.data(for:), which neither the
+    // delegate nor the completion-handler hook sees. Inject an NSURLProtocol (scoped
+    // to /sdui/ in canInit, so nothing else is touched) to capture that body.
+    private static func installURLProtocol() {
+        URLProtocol.registerClass(LProCaptureURLProtocol.self)
+        for name in ["defaultSessionConfiguration", "ephemeralSessionConfiguration"] {
+            let sel = NSSelectorFromString(name)
+            guard let m = class_getClassMethod(URLSessionConfiguration.self, sel) else { continue }
+            typealias Fn = @convention(c) (AnyObject, Selector) -> URLSessionConfiguration
+            let orig = unsafeBitCast(method_getImplementation(m), to: Fn.self)
+            let block: @convention(block) (AnyObject) -> URLSessionConfiguration = { obj in
+                let config = orig(obj, sel)
+                var classes = config.protocolClasses ?? []
+                if !classes.contains(where: { $0 === LProCaptureURLProtocol.self }) {
+                    classes.insert(LProCaptureURLProtocol.self, at: 0)
+                    config.protocolClasses = classes
+                }
+                return config
+            }
+            method_setImplementation(m, imp_implementationWithBlock(block))
+        }
+    }
+
     private static func noteResponseBody(url: String, data: Data) {
         guard runtimeEnabled, !capped, data.count > 0, responseURLWanted(url) else { return }
         let slice = data.count > perResponseCap ? data.prefix(perResponseCap) : data
@@ -330,6 +358,69 @@ enum LProFeedCapture {
             try? data.write(to: url, options: .atomic)
         }
         totalWritten += data.count
+    }
+}
+
+// NSURLProtocol that captures SDUI feed responses (async data(for:) traffic the
+// other hooks miss). Scoped to /sdui/ in canInit, so only the feed screen/page
+// requests are intercepted; it forwards through a private session (marked handled,
+// so it never re-enters itself) and streams the response back unchanged, logging
+// the full body on completion. Disabling capture flips protocolActive -> canInit
+// returns false -> the feed loads normally again, no relaunch needed.
+final class LProCaptureURLProtocol: URLProtocol, URLSessionDataDelegate {
+    private static let handledKey = "LProFeedCaptureHandled"
+    private var fwdSession: URLSession?
+    private var fwdTask: URLSessionDataTask?
+    private var buffer = Data()
+
+    override class func canInit(with request: URLRequest) -> Bool {
+        guard LProFeedCapture.protocolActive,
+              URLProtocol.property(forKey: handledKey, in: request) == nil,
+              let u = request.url?.absoluteString.lowercased(), u.contains("/sdui/") else { return false }
+        return true
+    }
+
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+
+    override func startLoading() {
+        guard let mutable = (request as NSURLRequest).mutableCopy() as? NSMutableURLRequest else {
+            client?.urlProtocol(self, didFailWithError: URLError(.unknown)); return
+        }
+        URLProtocol.setProperty(true, forKey: Self.handledKey, in: mutable)
+        fwdSession = URLSession(configuration: .default, delegate: self, delegateQueue: nil)
+        fwdTask = fwdSession?.dataTask(with: mutable as URLRequest)
+        fwdTask?.resume()
+    }
+
+    override func stopLoading() {
+        fwdTask?.cancel()
+        fwdSession?.invalidateAndCancel()
+        fwdSession = nil
+    }
+
+    func urlSession(_ session: URLSession, dataTask: URLSessionDataTask,
+                    didReceive response: URLResponse,
+                    completionHandler: @escaping (URLSession.ResponseDisposition) -> Void) {
+        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+        completionHandler(.allow)
+    }
+
+    func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
+        buffer.append(data)
+        client?.urlProtocol(self, didLoad: data)
+    }
+
+    func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
+        if let error {
+            client?.urlProtocol(self, didFailWithError: error)
+        } else {
+            client?.urlProtocolDidFinishLoading(self)
+            if let u = request.url?.absoluteString {
+                LProFeedCapture.noteProtocolResponse(url: u, data: buffer)
+            }
+        }
+        fwdSession?.finishTasksAndInvalidate()
+        fwdSession = nil
     }
 }
 
