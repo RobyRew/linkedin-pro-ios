@@ -69,10 +69,49 @@ private struct LProNavRow: View {
     }
 }
 
+// The maintenance actions offered in the main settings, each confirmed first.
+private enum LProMaintenanceAction: Identifiable, Hashable {
+    case clearCache, clearData, resetDefaults
+    var id: Self { self }
+    var destructive: Bool { self != .clearCache }
+    var title: String {
+        switch self {
+        case .clearCache: return "Clear LinkedIn's cache?"
+        case .clearData: return "Clear cache & all data?"
+        case .resetDefaults: return "Restore tweak defaults?"
+        }
+    }
+    var message: String {
+        switch self {
+        case .clearCache: return "Frees LinkedIn's cached files. You stay signed in."
+        case .clearData: return "Wipes cache, cookies and app data. This signs you out of LinkedIn."
+        case .resetDefaults: return "Returns every LinkedIn Professional setting to its shipped value."
+        }
+    }
+    var confirmLabel: String {
+        switch self {
+        case .clearCache: return "Clear cache"
+        case .clearData: return "Clear all"
+        case .resetDefaults: return "Restore defaults"
+        }
+    }
+    func run() -> String {
+        switch self {
+        case .clearCache: return LProMaintenance.clearCache()
+        case .clearData: return LProMaintenance.clearCacheAndData()
+        case .resetDefaults: return LProMaintenance.resetTweakDefaults()
+        }
+    }
+}
+
 struct LProSettingsView: View {
     // Pushes a sub-screen onto the hosting UIKit navigation controller.
     let push: (AnyView, String) -> Void
     @State private var devKit = LProDevKit.isEnabled
+    @State private var captureOn = UserDefaults.lproFeedCaptureEnabled
+    @State private var captureSize = LProFeedCapture.sizeString()
+    @State private var pendingAction: LProMaintenanceAction?
+    @State private var resultMessage: String?
 
     var body: some View {
         List {
@@ -148,10 +187,49 @@ struct LProSettingsView: View {
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
+
+                Toggle(isOn: $captureOn) {
+                    HStack(spacing: 12) {
+                        LProIconTile(symbol: "arrow.down.doc.fill", tint: .gray)
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text("Capture feed traffic")
+                            Text(captureOn ? "Documents/feed-capture.txt · \(captureSize)" : "Off")
+                                .font(.caption.monospaced())
+                                .foregroundStyle(captureOn ? .green : .secondary)
+                        }
+                    }
+                }
+                .onChange(of: captureOn) { _, on in
+                    _ = LProFeedCapture.setEnabled(on)
+                    captureSize = LProFeedCapture.sizeString()
+                }
+
+                Button("Clear capture file", role: .destructive) {
+                    LProFeedCapture.clear()
+                    captureSize = LProFeedCapture.sizeString()
+                }
             } header: {
                 Text("Developer")
             } footer: {
-                Text("Loopback introspection console. Reach it over USB with `iproxy \(LProDevKit.port) \(LProDevKit.port)`; it answers while LinkedIn is in the foreground. Starting/stopping here takes effect immediately. The command console shows, live, what a connected viewer sends and what it gets back.")
+                Text("Loopback introspection console. Reach it over USB with `iproxy \(LProDevKit.port) \(LProDevKit.port)`; it answers while LinkedIn is in the foreground. The command console shows, live, what a connected viewer sends and what it gets back. Capture feed traffic records the feed requests and raw JSON responses to Documents/feed-capture.txt from launch (DevKit only) \u{2014} run it with the filters off for a clean capture.")
+            }
+
+            Section {
+                Button {
+                    pendingAction = .clearCache
+                } label: { Label("Clear LinkedIn's cache", systemImage: "trash") }
+
+                Button(role: .destructive) {
+                    pendingAction = .clearData
+                } label: { Label("Clear LinkedIn's cache & data (all)", systemImage: "trash.slash") }
+
+                Button(role: .destructive) {
+                    pendingAction = .resetDefaults
+                } label: { Label("Restore tweak's default settings", systemImage: "arrow.counterclockwise") }
+            } header: {
+                Text("Maintenance")
+            } footer: {
+                Text("Clear cache frees LinkedIn's cached files. Cache & data also wipes cookies and app data \u{2014} it signs you out. Restore defaults returns every LinkedIn Professional setting to its shipped value. Each asks first; some take effect after a relaunch.")
             }
 
             Section("About") {
