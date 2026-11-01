@@ -22,9 +22,22 @@ final class LProUpsellBlockProtocol: URLProtocol {
             || u.contains("premiumdashupsell") || u.contains("premiumupsell")
     }
 
+    // Feed "recommended" injected modules: companies / pages / people the algorithm
+    // pushes in (voyagerFeedPackageRecommendations, the identity "people you may
+    // know" module). Blocking these requests removes the modules at the source
+    // instead of hiding their cells.
+    static func isRecommendationURL(_ url: String) -> Bool {
+        let u = url.lowercased()
+        return u.contains("feedpackagerecommendations")
+            || u.contains("identitymodulebymoduletype") || u.contains("feeddashidentitymodule")
+    }
+
     override class func canInit(with request: URLRequest) -> Bool {
-        guard let u = request.url?.absoluteString, isUpsellURL(u) else { return false }
-        return UserDefaults.lproFeedFilter.hidePremiumUpsell
+        guard let u = request.url?.absoluteString else { return false }
+        let feed = UserDefaults.lproFeedFilter
+        if isUpsellURL(u) { return feed.hidePremiumUpsell }
+        if isRecommendationURL(u) { return feed.hidePromotions }
+        return false
     }
 
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
