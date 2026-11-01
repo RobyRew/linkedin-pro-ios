@@ -41,10 +41,14 @@ class SDUIFeedAppearHook: ClassHook<UIViewController> {
 
     func viewDidAppear(_ animated: Bool) {
         orig.viewDidAppear(animated)
-        guard !SDUIFeedActivator.activated,
-              NSStringFromClass(type(of: target)).contains("FeedSDUIViewController") else { return }
+        guard !SDUIFeedActivator.activated else { return }
+        // Install when ANY SDUI screen appears (feed, notifications, search, the More
+        // tab), not only the main feed, so ad/upsell/promo hiding reaches them all.
+        // The data-source class the filter hooks is shared across every SDUI screen.
+        let name = NSStringFromClass(type(of: target))
+        guard name.contains("SDUI"), name.contains("ViewController") else { return }
         SDUIFeedActivator.activated = true
-        SDUIFeedActivator.activate(feedRoot: target.view)
+        SDUIFeedActivator.activate(feedRoot: name.contains("Feed") ? target.view : nil)
     }
 }
 
@@ -95,10 +99,14 @@ enum SDUICellFilterInstaller {
         let block: @convention(block) (AnyObject, UICollectionView, UICollectionViewCell,
                                        NSIndexPath) -> Void = { obj, cv, cell, ip in
             orig(obj, sel, cv, cell, ip)
-            guard SDUIFeedFilter.isFeed(cv) else { return }
             let indexPath = ip as IndexPath
+            // Ads / upsell / promo hiding applies on EVERY SDUI screen (notifications,
+            // search, the More tab, ...), not only the main feed; the relational
+            // filters (reaction / followed-by / out-of-network / company) stay
+            // feed-only. isFeed decides the scope.
+            let feedScope = SDUIFeedFilter.isFeed(cv)
 
-            if let reason = SDUIFeedFilter.hideReason(for: cell) {
+            if let reason = SDUIFeedFilter.hideReason(for: cell, feedScope: feedScope) {
                 cell.isHidden = true
                 if SDUIFeedFilter.mark(cv, indexPath.item) {
                     SDUIFeedStats.note(reason)
@@ -233,12 +241,14 @@ enum SDUIFeedFilter {
     private static let headerBand: CGFloat = 80
 
     // The category this card falls into, if the matching option is on; else nil.
-    static func hideReason(for cell: UICollectionViewCell) -> String? {
+    // `feedScope` is true only on the main feed; off it, only the universal ads /
+    // upsell / promo categories run (the relational ones are feed-specific).
+    static func hideReason(for cell: UICollectionViewCell, feedScope: Bool) -> String? {
         let opt = LProFeedFilterCache.current
-        guard opt.hideSponsored || opt.hidePromotions || opt.hidePremiumUpsell
-            || opt.hideReactionSurfaced || opt.hideCommentSurfaced || opt.hideRepostSurfaced
-            || opt.hideFollowedBy || opt.hideOutOfNetwork || opt.hideCompanyPosts
-        else { return nil }
+        let wantUniversal = opt.hideSponsored || opt.hidePromotions || opt.hidePremiumUpsell
+        let wantRelational = feedScope && (opt.hideReactionSurfaced || opt.hideCommentSurfaced
+            || opt.hideRepostSurfaced || opt.hideFollowedBy || opt.hideOutOfNetwork || opt.hideCompanyPosts)
+        guard wantUniversal || wantRelational else { return nil }
 
         var budget = 500
         let markers = collect(in: cell, budget: &budget)
@@ -246,17 +256,21 @@ enum SDUIFeedFilter {
 
         if opt.hideSponsored, isSponsored(markers) { return "sponsored" }
         if opt.hidePremiumUpsell, isPremiumUpsell(markers) { return "premium-upsell" }
-        if opt.hideReactionSurfaced, let r = reactionSurfaced(header), opt.reactions.contains(r) {
-            return "reaction-\(r.rawValue)"
+        if wantRelational {
+            if opt.hideReactionSurfaced, let r = reactionSurfaced(header), opt.reactions.contains(r) {
+                return "reaction-\(r.rawValue)"
+            }
+            if opt.hideCommentSurfaced, isCommentSurfaced(header) { return "commented" }
+            if opt.hideRepostSurfaced, isRepostSurfaced(header) { return "reposted" }
+            if opt.hideFollowedBy, isFollowedBy(header) { return "followed-by" }
         }
-        if opt.hideCommentSurfaced, isCommentSurfaced(header) { return "commented" }
-        if opt.hideRepostSurfaced, isRepostSurfaced(header) { return "reposted" }
-        if opt.hideFollowedBy, isFollowedBy(header) { return "followed-by" }
         if opt.hidePromotions, isPromotion(markers) { return "promotion" }
         // Relational filters last: they are the broadest, so a card that also
         // matched a more specific reason above is attributed to that reason.
-        if opt.hideCompanyPosts, isCompanyPost(header) { return "company" }
-        if opt.hideOutOfNetwork, isOutOfNetwork(header) { return "out-of-network" }
+        if wantRelational {
+            if opt.hideCompanyPosts, isCompanyPost(header) { return "company" }
+            if opt.hideOutOfNetwork, isOutOfNetwork(header) { return "out-of-network" }
+        }
         return nil
     }
 

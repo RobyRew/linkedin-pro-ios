@@ -102,10 +102,47 @@ class TabVCFactoryInitHook: ClassHook<NSObject> {
     }
 }
 
+// The ACTUAL builder of each tab's controller on this build (confirmed on device:
+// LINMainNavTabBarViewControllerFactory is never instantiated, but this is called
+// for every default tab). Capture the factory instance + the rootContainer + the
+// per-tab context it is passed, and log the tabType ints, so the extra-tab build
+// can be replicated. Observe-only here - it does not yet build an extra tab.
+class AdaptiveTabFactoryHook: ClassHook<NSObject> {
+    typealias Group = TabEngineGroup
+    static let targetName = "HomeNav.AdaptiveTabViewControllerFactory"
+
+    func makeAdaptiveTabViewController(_ adaptiveTab: Any?, rootContainer: Any?, tabType: Int) -> UIViewController? {
+        let vc = orig.makeAdaptiveTabViewController(adaptiveTab, rootContainer: rootContainer, tabType: tabType)
+        TabEngine.captureAdaptive(factory: target, context: adaptiveTab as? NSObject,
+                                  rootContainer: rootContainer as? NSObject, tabType: tabType, vc: vc)
+        return vc
+    }
+}
+
 enum TabEngine {
     static weak var tabBarController: UITabBarController?
     static weak var typeFactory: NSObject?
     static weak var vcFactory: NSObject?
+
+    // The adaptive tab factory + the context it is handed per tab, captured live so
+    // an extra tab can later be built the same way LinkedIn builds its own.
+    static weak var adaptiveFactory: NSObject?
+    static weak var adaptiveContext: NSObject?
+    static weak var adaptiveRootContainer: NSObject?
+    private static var loggedAdaptive = false
+
+    static func captureAdaptive(factory: NSObject, context: NSObject?, rootContainer: NSObject?,
+                                tabType: Int, vc: UIViewController?) {
+        adaptiveFactory = factory
+        if let context { adaptiveContext = context }
+        if let rootContainer { adaptiveRootContainer = rootContainer }
+        guard !loggedAdaptive else { return }
+        loggedAdaptive = true
+        LProLog.write("[navbar] adaptive factory \(NSStringFromClass(type(of: factory))) "
+                      + "tabType=\(tabType) context=\(context.map { NSStringFromClass(type(of: $0)) } ?? "nil") "
+                      + "rootContainer=\(rootContainer.map { NSStringFromClass(type(of: $0)) } ?? "nil") "
+                      + "-> \(vc.map { NSStringFromClass(type(of: $0)) } ?? "nil")")
+    }
 
     // Marks a view controller we built for an extra tab, so the sanitize hook can
     // re-add it when LinkedIn's filter drops it.
@@ -184,7 +221,12 @@ enum TabEngine {
                                                    action: #selector(LProTabLongPress.handle(_:)))
         gesture.minimumPressDuration = 0.5
         gesture.allowableMovement = 12
-        gesture.cancelsTouchesInView = false
+        // Cancel the underlying touch once the long-press fires, so holding the first
+        // tab opens settings WITHOUT also selecting that tab. The delegate's
+        // shouldReceive below restricts the recognizer to the first tab, so a tap
+        // (too short to be a long press) and any touch on the other tabs are never
+        // affected - they select normally.
+        gesture.cancelsTouchesInView = true
         // Let it run alongside the bar's own recognizers instead of losing the
         // race to the tab-select gesture.
         gesture.delegate = LProTabLongPress.shared
@@ -441,6 +483,19 @@ final class LProTabLongPress: NSObject, UIGestureRecognizerDelegate {
     func gestureRecognizer(_ gesture: UIGestureRecognizer,
                            shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool {
         true
+    }
+
+    // Only let the long press engage on the FIRST tab, so it never interferes with
+    // selecting the other tabs (the recognizer used to sit on the whole bar and
+    // disturb normal taps - "it goes to that tab", "opens that tab after").
+    func gestureRecognizer(_ gesture: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+        guard UserDefaults.lproTabBar.longPressEntry, let bar = gesture.view else { return false }
+        let buttons = tabButtons(in: bar).sorted {
+            $0.convert($0.bounds, to: bar).minX < $1.convert($1.bounds, to: bar).minX
+        }
+        guard let first = buttons.first else { return false }
+        let point = touch.location(in: bar)
+        return first.convert(first.bounds, to: bar).insetBy(dx: -8, dy: -8).contains(point)
     }
 
     @objc func handle(_ gesture: UILongPressGestureRecognizer) {

@@ -32,29 +32,47 @@ class GlassTopBarNavHook: ClassHook<UINavigationBar> {
 }
 
 enum GlassTopBar {
-    private static var markKey: UInt8 = 0
+    private static let glassTag = 0x4C50_4762   // 'LPGb'
 
+    // Setting the bar's appearance to a glass material rendered visibility=hidden on
+    // this build (confirmed on device), so instead insert a glass effect view we own
+    // directly ABOVE LinkedIn's background fill (which carries the solid "white"
+    // colour) and below its content platter. We control it, so it is reliably visible.
     static func apply(_ bar: UINavigationBar) {
         guard #available(iOS 26.0, *) else { return }
-        guard UserDefaults.lproTabBar.topBarGlass else { return }
-        // Skip if the bar already carries the appearance we installed (so setting it
-        // -> layoutSubviews -> here -> identity match -> return: no loop). When
-        // LinkedIn swaps in its own appearance, identity differs and we re-apply.
-        if let mark = objc_getAssociatedObject(bar, &markKey) as? UINavigationBarAppearance,
-           bar.standardAppearance === mark { return }
+        guard UserDefaults.lproTabBar.topBarGlass else {
+            // Toggle off: remove our glass view if present.
+            bar.viewWithTag(glassTag)?.removeFromSuperview()
+            return
+        }
 
-        let appearance = UINavigationBarAppearance()
-        appearance.configureWithDefaultBackground()
-        appearance.backgroundColor = nil
-        // A translucent material so the bar reads as glass rather than a solid fill;
-        // this makes UIKit build the effect view in place of the opaque colour view.
-        appearance.backgroundEffect = UIBlurEffect(style: .systemUltraThinMaterial)
+        if let existing = bar.viewWithTag(glassTag) {
+            existing.frame = bar.bounds
+            keepAboveBarBackground(existing, in: bar)
+            return
+        }
 
-        bar.standardAppearance = appearance
-        bar.compactAppearance = appearance
-        bar.scrollEdgeAppearance = appearance
-        bar.compactScrollEdgeAppearance = appearance
-        bar.isTranslucent = true
-        objc_setAssociatedObject(bar, &markKey, appearance, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+        // A thin material reads as frosted glass in both themes (UIGlassEffect is not
+        // assignable here); the direct effect view is always visible, unlike the
+        // appearance route.
+        let effectView = UIVisualEffectView(effect: UIBlurEffect(style: .systemThinMaterial))
+        effectView.tag = glassTag
+        effectView.isUserInteractionEnabled = false
+        effectView.frame = bar.bounds
+        effectView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        bar.addSubview(effectView)
+        keepAboveBarBackground(effectView, in: bar)
+    }
+
+    // Place the glass view just above LinkedIn's _UIBarBackground (so it hides the
+    // solid fill) but below the nav content, re-ordering if LinkedIn re-stacks.
+    private static func keepAboveBarBackground(_ glass: UIView, in bar: UINavigationBar) {
+        var index = 1
+        for (i, sub) in bar.subviews.enumerated()
+        where NSStringFromClass(type(of: sub)).contains("_UIBarBackground") { index = i + 1 }
+        let target = min(index, bar.subviews.count - 1)
+        if bar.subviews.firstIndex(of: glass) != target {
+            bar.insertSubview(glass, at: max(0, target))
+        }
     }
 }
