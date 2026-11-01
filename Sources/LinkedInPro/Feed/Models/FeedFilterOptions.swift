@@ -83,6 +83,10 @@ struct FeedFilterOptions: Codable, Equatable {
     var hideSponsored: Bool = true     // "Promoted" ads
     var hidePromotions: Bool = true    // suggestion / recommendation promo cards
     var hidePremiumUpsell: Bool = true // premium upsell cards + the UI upsell buttons
+    // Strip sponsored posts from the feed's getPage protobuf response at the network
+    // layer (before the app decodes them), instead of only hiding the rendered cell.
+    // Fail-safe: any parse issue leaves the response untouched. Experimental.
+    var scrubRequests: Bool = true
 
     // Decode missing keys to their declared defaults, so a blob written by an
     // earlier build (which had no clean-up keys, or had them defaulting off)
@@ -103,6 +107,7 @@ struct FeedFilterOptions: Codable, Equatable {
         hideSponsored = try c.decodeIfPresent(Bool.self, forKey: .hideSponsored) ?? d.hideSponsored
         hidePromotions = try c.decodeIfPresent(Bool.self, forKey: .hidePromotions) ?? d.hidePromotions
         hidePremiumUpsell = try c.decodeIfPresent(Bool.self, forKey: .hidePremiumUpsell) ?? d.hidePremiumUpsell
+        scrubRequests = try c.decodeIfPresent(Bool.self, forKey: .scrubRequests) ?? d.scrubRequests
     }
 }
 

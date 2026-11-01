@@ -368,12 +368,16 @@ final class LProCaptureURLProtocol: URLProtocol, URLSessionDataDelegate {
     private var fwdSession: URLSession?
     private var fwdTask: URLSessionDataTask?
     private var buffer = Data()
+    private var storedResponse: URLResponse?
 
+    // Engage for /sdui/ when capture is armed OR when the request-level feed scrub
+    // should rewrite this getPage response.
     override class func canInit(with request: URLRequest) -> Bool {
-        guard LProFeedCapture.protocolActive,
-              URLProtocol.property(forKey: handledKey, in: request) == nil,
-              let u = request.url?.absoluteString.lowercased(), u.contains("/sdui/") else { return false }
-        return true
+        guard URLProtocol.property(forKey: handledKey, in: request) == nil,
+              let u = request.url?.absoluteString else { return false }
+        let capture = LProFeedCapture.protocolActive && u.lowercased().contains("/sdui/")
+        let scrub = LProFeedScrub.isOn && LProFeedScrub.wants(url: u)
+        return capture || scrub
     }
 
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
@@ -394,29 +398,49 @@ final class LProCaptureURLProtocol: URLProtocol, URLSessionDataDelegate {
         fwdSession = nil
     }
 
+    // Buffer the whole response (so the body can be rewritten) rather than streaming.
     func urlSession(_ session: URLSession, dataTask: URLSessionDataTask,
                     didReceive response: URLResponse,
                     completionHandler: @escaping (URLSession.ResponseDisposition) -> Void) {
-        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+        storedResponse = response
         completionHandler(.allow)
     }
 
     func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
         buffer.append(data)
-        client?.urlProtocol(self, didLoad: data)
     }
 
     func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
+        defer { fwdSession?.finishTasksAndInvalidate(); fwdSession = nil }
         if let error {
             client?.urlProtocol(self, didFailWithError: error)
-        } else {
-            client?.urlProtocolDidFinishLoading(self)
-            if let u = request.url?.absoluteString {
-                LProFeedCapture.noteProtocolResponse(url: u, data: buffer)
-            }
+            return
         }
-        fwdSession?.finishTasksAndInvalidate()
-        fwdSession = nil
+        let url = request.url?.absoluteString ?? ""
+        // Capture the ORIGINAL body for the DevKit log.
+        if LProFeedCapture.protocolActive { LProFeedCapture.noteProtocolResponse(url: url, data: buffer) }
+
+        // Request-level feed scrub: strip sponsored posts from the protobuf; fail-safe
+        // to the original on any parse issue.
+        var finalData = buffer
+        if LProFeedScrub.isOn, LProFeedScrub.wants(url: url), let r = LProFeedScrub.scrub(buffer) {
+            finalData = r.data
+            LProLog.write("[scrub] feed getPage \(buffer.count)B -> \(finalData.count)B, dropped \(r.dropped) sponsored post(s)")
+        }
+
+        let response: URLResponse
+        if finalData.count != buffer.count, let http = storedResponse as? HTTPURLResponse {
+            var headers = (http.allHeaderFields as? [String: String]) ?? [:]
+            headers.removeValue(forKey: "Content-Encoding")   // body is already decoded
+            headers["Content-Length"] = String(finalData.count)
+            response = HTTPURLResponse(url: http.url ?? request.url!, statusCode: http.statusCode,
+                                       httpVersion: "HTTP/1.1", headerFields: headers) ?? http
+        } else {
+            response = storedResponse ?? URLResponse()
+        }
+        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+        client?.urlProtocol(self, didLoad: finalData)
+        client?.urlProtocolDidFinishLoading(self)
     }
 }
 

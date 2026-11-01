@@ -12,10 +12,13 @@ struct LProFeedSettingsView: View {
                 Toggle(isOn: $options.hideSponsored) {
                     Label("Hide sponsored posts (Promoted)", systemImage: "megaphone")
                 }
+                Toggle(isOn: $options.scrubRequests) {
+                    Label("Filter at network level (experimental)", systemImage: "network.badge.shield.half.filled")
+                }
             } header: {
                 Text("Ads")
             } footer: {
-                Text("The same setting as Ads & Sponsored \u{2192} \u{201C}Hide sponsored posts\u{201D} \u{2014} changing it here changes it there too.")
+                Text("\u{201C}Hide sponsored posts\u{201D} is the same setting as Ads & Sponsored. With network-level filtering on, sponsored posts are stripped from the feed\u{2019}s response before the app decodes them (not just hidden as cells) \u{2014} fail-safe: any parse issue leaves the feed untouched.")
             }
 
             Section {
